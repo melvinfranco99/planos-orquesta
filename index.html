@@ -91,11 +91,6 @@
   .btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
   .btn.danger:hover{border-color:var(--danger);color:var(--danger);}
   .btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent);}
-  .btn.active{background:var(--accent);border-color:var(--accent);color:var(--on-accent);}
-
-  .section.select-mode .stage{cursor:crosshair;}
-  .section.select-mode .item{cursor:pointer;}
-  .section.select-mode .zone{cursor:pointer;}
   .rubber-band{position:absolute;border:1.5px dashed var(--accent);background:rgba(201,122,43,.14);pointer-events:none;z-index:60;}
 
   input[type="color"]{width:32px;height:32px;padding:2px;border-radius:6px;border:1.5px solid var(--border);background:var(--bg-stage);cursor:pointer;}
@@ -306,9 +301,9 @@
     {label:'Violonchelo', icon:ICONS.cello, w:104, h:84},
     {label:'Viola', icon:ICONS.violin, w:96, h:84},
     {label:'Violín II', icon:ICONS.violin, w:96, h:84},
-    {label:'Violín I', icon:ICONS.violin, w:96, h:84},
-    {label:'Arpa', icon:ICONS.harp, w:96, h:84}
+    {label:'Violín I', icon:ICONS.violin, w:96, h:84}
   ]; }
+  function harpItem(){ return {label:'Arpa', icon:ICONS.harp, w:96, h:84}; }
   function woodwindsOrchestra(){ return [
     {label:'Fagot', icon:ICONS.bassoon, w:100, h:84},
     {label:'Oboe', icon:ICONS.woodwind, w:96, h:84},
@@ -373,13 +368,30 @@
     var x = x0;
     items.forEach(function(d){ d.x = x; d.y = y; x += d.w + gap; });
   }
-  function bbox(items, pad){
+  // Lays out items left-to-right (packed or filling x0..xEnd), then curves the
+  // first `arcCount` of them into a shallow arc (like a string section facing
+  // the audience); any remaining items (e.g. the harp) sit further back.
+  function layoutArc(items, x0, xEnd, baseY, amplitude, fill, arcCount){
+    if(fill) layoutRowFill(items, x0, xEnd, baseY);
+    else layoutRow(items, x0, baseY);
+    var n = arcCount || items.length;
+    items.forEach(function(d, i){
+      if(i < n){
+        var u = n > 1 ? (i / (n - 1)) * 2 - 1 : 0;
+        d.y = baseY + amplitude * u * u;
+      } else {
+        d.y = baseY + amplitude + 35;
+      }
+    });
+  }
+  function bbox(items, padX, padY){
+    if(padY === undefined) padY = padX;
     var minX=Infinity, minY=Infinity, maxX=-Infinity, maxY=-Infinity;
     items.forEach(function(d){
       minX = Math.min(minX, d.x); minY = Math.min(minY, d.y);
       maxX = Math.max(maxX, d.x + d.w); maxY = Math.max(maxY, d.y + d.h);
     });
-    return { x:minX-pad, y:minY-pad, w:(maxX-minX)+2*pad, h:(maxY-minY)+2*pad };
+    return { x:minX-padX, y:minY-padY, w:(maxX-minX)+2*padX, h:(maxY-minY)+2*padY };
   }
   function cloneItems(items){
     return items.map(function(d){ var c={}; for(var k in d) c[k]=d[k]; return c; });
@@ -387,67 +399,82 @@
 
   //=== Build section configs ================================================
   var SECTIONS = [];
+  var ROW_GAP = 90;   // vertical breathing room between family rows
+  var ZONE_PAD_X = 20, ZONE_PAD_Y = 45;  // padding around each section's colored zone
 
   (function(){
-    var items = stringsOrchestra(); var endX = layoutRow(items, 20, 155);
-    SECTIONS.push({group:'Orquesta', id:'orq-cuerda', label:'Cuerda', items:items, vw:Math.max(700, endX+20), vh:300});
+    var strings = stringsOrchestra().concat([harpItem()]);
+    layoutArc(strings, 20, 0, 100, 70, false, 5);
+    var last = strings[strings.length-1];
+    SECTIONS.push({group:'Orquesta', id:'orq-cuerda', label:'Cuerda', items:strings, vw:Math.max(760, last.x+last.w+30), vh:360});
   })();
   (function(){
-    var madera = woodwindsOrchestra(); var e1 = layoutRow(madera, 20, 140);
-    var metal = brassOrchestra(); var e2 = layoutRow(metal, 20, 264);
+    var madera = woodwindsOrchestra(); var e1 = layoutRow(madera, 20, 130);
+    var metal = brassOrchestra(); var e2 = layoutRow(metal, 20, 130+84+ROW_GAP);
     var items = madera.concat(metal);
-    SECTIONS.push({group:'Orquesta', id:'orq-vientos', label:'Vientos', items:items, vw:Math.max(560, e1+20, e2+20), vh:400});
+    SECTIONS.push({group:'Orquesta', id:'orq-vientos', label:'Vientos', items:items, vw:Math.max(560, e1+20, e2+20), vh:130+84+ROW_GAP+84+50});
   })();
   (function(){
     var items = percussionItems(44);
-    SECTIONS.push({group:'Orquesta', id:'orq-percusion', label:'Percusión', items:items, vw:1370, vh:420});
+    SECTIONS.push({group:'Orquesta', id:'orq-percusion', label:'Percusión', items:items, vw:1370, vh:460});
   })();
   (function(){
     var X0 = 20, X1 = 1326;
-    var strings = stringsOrchestra(); layoutRowFill(strings, X0, X1, 70);
-    var madera = woodwindsOrchestra(); layoutRowFill(madera, X0, X1, 194);
-    var metal = brassOrchestra(); layoutRowFill(metal, X0, X1, 318);
-    var perc = percussionItems(442);
+    var strings = stringsOrchestra().concat([harpItem()]);
+    layoutArc(strings, X0, X1, 80, 65, true, 5);
+    var stringsBottom = Math.max.apply(null, strings.map(function(d){ return d.y + d.h; }));
+    var maderaY = stringsBottom + ROW_GAP;
+    var madera = woodwindsOrchestra(); layoutRowFill(madera, X0, X1, maderaY);
+    var metalY = maderaY + 84 + ROW_GAP;
+    var metal = brassOrchestra(); layoutRowFill(metal, X0, X1, metalY);
+    var percY = metalY + 84 + ROW_GAP;
+    var perc = percussionItems(percY);
     var items = strings.concat(madera, metal, perc);
     var zones = [
-      {label:'Cuerda', kind:'strings', box:bbox(strings, 14)},
-      {label:'Viento madera', kind:'woodwind', box:bbox(madera, 14)},
-      {label:'Viento metal', kind:'brass', box:bbox(metal, 14)},
-      {label:'Percusión', kind:'percussion', box:bbox(perc, 14)}
+      {label:'Cuerda', kind:'strings', box:bbox(strings, ZONE_PAD_X, ZONE_PAD_Y)},
+      {label:'Viento madera', kind:'woodwind', box:bbox(madera, ZONE_PAD_X, ZONE_PAD_Y)},
+      {label:'Viento metal', kind:'brass', box:bbox(metal, ZONE_PAD_X, ZONE_PAD_Y)},
+      {label:'Percusión', kind:'percussion', box:bbox(perc, ZONE_PAD_X, ZONE_PAD_Y)}
     ];
-    SECTIONS.push({group:'Orquesta', id:'orq-completa', label:'Orquesta completa', items:items, zones:zones, vw:1370, vh:740});
+    var percBottom = Math.max.apply(null, perc.map(function(d){ return d.y + d.h; }));
+    SECTIONS.push({group:'Orquesta', id:'orq-completa', label:'Orquesta completa', items:items, zones:zones, vw:1370, vh:percBottom+60});
   })();
 
   (function(){
     var items = woodwindsBand(); var endX = layoutRow(items, 20, 155);
-    SECTIONS.push({group:'Banda sinfónica', id:'banda-madera', label:'Viento madera', items:items, vw:Math.max(700, endX+20), vh:300});
+    SECTIONS.push({group:'Banda sinfónica', id:'banda-madera', label:'Viento madera', items:items, vw:Math.max(700, endX+20), vh:360});
   })();
   (function(){
     var items = stringsBand(); var endX = layoutRow(items, 20, 155);
-    SECTIONS.push({group:'Banda sinfónica', id:'banda-cuerda', label:'Cuerda', items:items, vw:Math.max(500, endX+20), vh:300});
+    SECTIONS.push({group:'Banda sinfónica', id:'banda-cuerda', label:'Cuerda', items:items, vw:Math.max(500, endX+20), vh:360});
   })();
   (function(){
     var items = brassBand(); var endX = layoutRow(items, 20, 155);
-    SECTIONS.push({group:'Banda sinfónica', id:'banda-metal', label:'Viento metal', items:items, vw:Math.max(700, endX+20), vh:300});
+    SECTIONS.push({group:'Banda sinfónica', id:'banda-metal', label:'Viento metal', items:items, vw:Math.max(700, endX+20), vh:360});
   })();
   (function(){
     var items = percussionItems(44);
-    SECTIONS.push({group:'Banda sinfónica', id:'banda-percusion', label:'Percusión', items:items, vw:1370, vh:420});
+    SECTIONS.push({group:'Banda sinfónica', id:'banda-percusion', label:'Percusión', items:items, vw:1370, vh:460});
   })();
   (function(){
     var X0 = 20, X1 = 1326;
-    var madera = woodwindsBand(); layoutRowFill(madera, X0, X1, 70);
-    var cuerda = stringsBand(); layoutRowFill(cuerda, X0, X1, 194);
-    var metal = brassBand(); layoutRowFill(metal, X0, X1, 318);
-    var perc = percussionItems(442);
+    var maderaY = 70;
+    var madera = woodwindsBand(); layoutRowFill(madera, X0, X1, maderaY);
+    var cuerdaY = maderaY + 84 + ROW_GAP;
+    var cuerda = stringsBand(); layoutRowFill(cuerda, X0, X1, cuerdaY);
+    var metalY = cuerdaY + 84 + ROW_GAP;
+    var metal = brassBand(); layoutRowFill(metal, X0, X1, metalY);
+    var percY = metalY + 84 + ROW_GAP;
+    var perc = percussionItems(percY);
     var items = madera.concat(cuerda, metal, perc);
     var zones = [
-      {label:'Viento madera', kind:'woodwind', box:bbox(madera, 14)},
-      {label:'Cuerda', kind:'strings', box:bbox(cuerda, 14)},
-      {label:'Viento metal', kind:'brass', box:bbox(metal, 14)},
-      {label:'Percusión', kind:'percussion', box:bbox(perc, 14)}
+      {label:'Viento madera', kind:'woodwind', box:bbox(madera, ZONE_PAD_X, ZONE_PAD_Y)},
+      {label:'Cuerda', kind:'strings', box:bbox(cuerda, ZONE_PAD_X, ZONE_PAD_Y)},
+      {label:'Viento metal', kind:'brass', box:bbox(metal, ZONE_PAD_X, ZONE_PAD_Y)},
+      {label:'Percusión', kind:'percussion', box:bbox(perc, ZONE_PAD_X, ZONE_PAD_Y)}
     ];
-    SECTIONS.push({group:'Banda sinfónica', id:'banda-entera', label:'Banda entera', items:items, zones:zones, vw:1370, vh:740});
+    var percBottom = Math.max.apply(null, perc.map(function(d){ return d.y + d.h; }));
+    SECTIONS.push({group:'Banda sinfónica', id:'banda-entera', label:'Banda entera', items:items, zones:zones, vw:1370, vh:percBottom+60});
   })();
 
   //=== Modal system ==========================================================
@@ -609,7 +636,7 @@
   }
 
   //=== Section factory =======================================================
-  function clamp(val, min, max){ return Math.max(min, Math.min(max, val)); }
+  function clamp(val, min, max){ if(max < min) max = min; return Math.max(min, Math.min(max, val)); }
 
   function createSection(cfg){
     var container = document.createElement('div');
@@ -631,9 +658,7 @@
           '<svg viewBox="0 0 24 24"><path d="M5 5h14M12 5v14"/></svg>Texto</button>' +
         '<input type="color" data-act="color" value="#2B4C78" title="Color de las nuevas formas y textos">' +
         '<span class="divider"></span>' +
-        '<button class="btn" data-act="select-mode" type="button" title="Modo selección múltiple: haz clic en varios elementos (o arrastra un recuadro) y vuelve a pulsar este botón para moverlos juntos">' +
-          '<svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2" stroke-dasharray="3 2.5"/><circle cx="4" cy="4" r="1.7" fill="currentColor" stroke="none"/><circle cx="20" cy="20" r="1.7" fill="currentColor" stroke="none"/></svg>Seleccionar</button>' +
-        '<button class="btn" data-act="edit" type="button" title="Modificar el nombre, icono o subtítulo del elemento seleccionado">' +
+        '<button class="btn" data-act="edit" type="button" title="Modificar el nombre, icono o subtítulo del elemento seleccionado. Mayús + clic para seleccionar varios elementos y luego arrastrarlos juntos">' +
           '<svg viewBox="0 0 24 24"><path d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17v3z"/><path d="M13.5 6.5l4 4"/></svg>Modificar</button>' +
         '<button class="btn danger" data-act="delete" type="button" title="Eliminar el elemento seleccionado (o pulsa Supr)">' +
           '<svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>Eliminar</button>' +
@@ -659,7 +684,7 @@
     stage.style.height = VIRTUAL_H + 'px';
 
     var selectedSet = new Set();
-    var selectMode = false, addCount = 0;
+    var addCount = 0;
 
     function clearSelection(){
       selectedSet.forEach(function(e){ e.classList.remove('selected'); });
@@ -706,11 +731,14 @@
       var THRESH = 4;
       var startClientX, startClientY, dragging = false, moved = false, members = null;
 
+      var shiftAtDown = false;
+
       el.addEventListener('pointerdown', function(e){
         if(e.target.closest('.resize-handle')) return;
         if(el.getAttribute('contenteditable') === 'true') return;
         e.stopPropagation();
         startClientX = e.clientX; startClientY = e.clientY;
+        shiftAtDown = e.shiftKey;
         dragging = true; moved = false; members = null;
         try{ el.setPointerCapture(e.pointerId); }catch(err){}
       });
@@ -720,7 +748,7 @@
         if(!moved){
           if(Math.abs(dxC) < THRESH && Math.abs(dyC) < THRESH) return;
           moved = true;
-          if(selectMode) return;
+          if(shiftAtDown) return;
           el.classList.add('dragging');
           if(!(selectedSet.has(el) && selectedSet.size > 1)) selectOnly(el);
           members = Array.from(selectedSet.size > 1 ? selectedSet : [el]).map(function(m){
@@ -728,7 +756,7 @@
                      w:parseFloat(m.dataset.w), h:parseFloat(m.dataset.h) };
           });
         }
-        if(selectMode || !members) return;
+        if(shiftAtDown || !members) return;
         var f = scaleFactor();
         var dxV = dxC / f, dyV = dyC / f;
         members.forEach(function(mem){
@@ -744,7 +772,7 @@
         el.classList.remove('dragging');
         try{ el.releasePointerCapture(e.pointerId); }catch(err){}
         if(!moved){
-          if(selectMode) toggleInSelection(el);
+          if(shiftAtDown) toggleInSelection(el);
           else selectOnly(el);
         }
         members = null;
@@ -955,12 +983,6 @@
         btn.addEventListener('click', function(){ addShape(act); });
       } else if(act === 'text'){
         btn.addEventListener('click', addText);
-      } else if(act === 'select-mode'){
-        btn.addEventListener('click', function(){
-          selectMode = !selectMode;
-          btn.classList.toggle('active', selectMode);
-          container.classList.toggle('select-mode', selectMode);
-        });
       } else if(act === 'edit'){
         btn.addEventListener('click', function(){
           if(selectedSet.size === 1) openEditModal(Array.from(selectedSet)[0]);
@@ -989,7 +1011,7 @@
       var stageRect = stage.getBoundingClientRect();
       var f = scaleFactor();
       var startX = (e.clientX - stageRect.left) / f, startY = (e.clientY - stageRect.top) / f;
-      if(!selectMode){ clearSelection(); return; }
+      var shiftHeld = e.shiftKey;
 
       var band = document.createElement('div');
       band.className = 'rubber-band';
@@ -1017,14 +1039,14 @@
         stage.removeEventListener('pointerup', up);
         band.remove();
         if(bandMoved){
-          if(!ev.shiftKey) clearSelection();
+          if(!shiftHeld) clearSelection();
           stage.querySelectorAll('.item, .zone').forEach(function(cand){
             var cx0 = parseFloat(cand.style.left) || 0, cy0 = parseFloat(cand.style.top) || 0;
             var cw = parseFloat(cand.dataset.w) || cand.offsetWidth, ch = parseFloat(cand.dataset.h) || cand.offsetHeight;
             var hit = cx0 < lastRect.x + lastRect.w && cx0 + cw > lastRect.x && cy0 < lastRect.y + lastRect.h && cy0 + ch > lastRect.y;
             if(hit) addToSelection(cand);
           });
-        } else {
+        } else if(!shiftHeld){
           clearSelection();
         }
       }
