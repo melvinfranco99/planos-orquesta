@@ -112,6 +112,17 @@
     transform-origin:top left;
   }
 
+  .zone{position:absolute;border-radius:12px;pointer-events:none;}
+  .zone-label{position:absolute;top:7px;left:11px;font-size:9.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;opacity:.9;}
+  .zone-strings{background:rgba(139,92,246,.10);border:1.5px dashed rgba(139,92,246,.55);}
+  .zone-strings .zone-label{color:#8B5CF6;}
+  .zone-woodwind{background:rgba(34,197,94,.10);border:1.5px dashed rgba(34,197,94,.55);}
+  .zone-woodwind .zone-label{color:#22C55E;}
+  .zone-brass{background:rgba(248,113,113,.10);border:1.5px dashed rgba(248,113,113,.55);}
+  .zone-brass .zone-label{color:#F87171;}
+  .zone-percussion{background:rgba(34,211,238,.10);border:1.5px dashed rgba(34,211,238,.55);}
+  .zone-percussion .zone-label{color:#22D3EE;}
+
   .edge-label{position:absolute;left:0;right:0;text-align:center;font-size:12px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:var(--ink-dim);pointer-events:none;}
   .edge-label.audience{top:12px;display:flex;align-items:center;justify-content:center;gap:7px;color:var(--accent-ink);}
   .edge-label.backstage{bottom:12px;}
@@ -143,8 +154,8 @@
   .item .sizes span{font-size:9px;color:var(--ink-dim);font-weight:600;}
 
   .item.shape{padding:0;background:transparent;}
-  .item.shape.square{background:var(--shape-fill,rgba(43,76,120,.12));border-color:var(--shape-color,var(--border));border-width:2px;}
-  .item.shape.circle{background:var(--shape-fill,rgba(43,76,120,.12));border-color:var(--shape-color,var(--border));border-width:2px;border-radius:50%;}
+  .item.shape.square{background:var(--shape-fill,rgba(43,76,120,.12));border-color:var(--shape-color,var(--border));border-width:4px;}
+  .item.shape.circle{background:var(--shape-fill,rgba(43,76,120,.12));border-color:var(--shape-color,var(--border));border-width:4px;border-radius:50%;}
   .item.shape.text{
     border:1.5px dashed transparent;background:transparent;box-shadow:none;color:var(--shape-color,var(--ink));
     font-weight:700;font-size:14px;padding:4px 8px;min-width:40px;min-height:24px;justify-content:center;
@@ -290,13 +301,13 @@
     {label:'Trompa', icon:ICONS.horn, w:100, h:84}
   ]; }
   function woodwindsBand(){ return [
+    {label:'Saxofón barítono', icon:ICONS.sax, w:106, h:84},
+    {label:'Saxofón tenor', icon:ICONS.sax, w:100, h:84},
+    {label:'Saxofón alto', icon:ICONS.sax, w:100, h:84},
     {label:'Fagot', icon:ICONS.bassoon, w:100, h:84},
     {label:'Oboe', icon:ICONS.woodwind, w:96, h:84},
     {label:'Flauta', icon:ICONS.flute, w:96, h:84},
-    {label:'Clarinete', icon:ICONS.woodwind, w:96, h:84},
-    {label:'Saxofón alto', icon:ICONS.sax, w:100, h:84},
-    {label:'Saxofón tenor', icon:ICONS.sax, w:100, h:84},
-    {label:'Saxofón barítono', icon:ICONS.sax, w:106, h:84}
+    {label:'Clarinete', icon:ICONS.woodwind, w:96, h:84}
   ]; }
   function stringsBand(){ return [
     {label:'Contrabajo', icon:ICONS.bass, w:108, h:84},
@@ -334,6 +345,21 @@
     items.forEach(function(d){ d.x = x; d.y = y; x += d.w + GAP; });
     return x;
   }
+  function layoutRowFill(items, x0, xEnd, y){
+    var totalW = items.reduce(function(s,d){ return s + d.w; }, 0);
+    var n = items.length;
+    var gap = n > 1 ? (xEnd - x0 - totalW) / (n - 1) : 0;
+    var x = x0;
+    items.forEach(function(d){ d.x = x; d.y = y; x += d.w + gap; });
+  }
+  function bbox(items, pad){
+    var minX=Infinity, minY=Infinity, maxX=-Infinity, maxY=-Infinity;
+    items.forEach(function(d){
+      minX = Math.min(minX, d.x); minY = Math.min(minY, d.y);
+      maxX = Math.max(maxX, d.x + d.w); maxY = Math.max(maxY, d.y + d.h);
+    });
+    return { x:minX-pad, y:minY-pad, w:(maxX-minX)+2*pad, h:(maxY-minY)+2*pad };
+  }
   function cloneItems(items){
     return items.map(function(d){ var c={}; for(var k in d) c[k]=d[k]; return c; });
   }
@@ -356,12 +382,19 @@
     SECTIONS.push({group:'Orquesta', id:'orq-percusion', label:'Percusión', items:items, vw:1370, vh:420});
   })();
   (function(){
-    var strings = stringsOrchestra(); layoutRow(strings, 20, 70);
-    var madera = woodwindsOrchestra(); layoutRow(madera, 20, 194);
-    var metal = brassOrchestra(); layoutRow(metal, 20, 318);
+    var X0 = 20, X1 = 1326;
+    var strings = stringsOrchestra(); layoutRowFill(strings, X0, X1, 70);
+    var madera = woodwindsOrchestra(); layoutRowFill(madera, X0, X1, 194);
+    var metal = brassOrchestra(); layoutRowFill(metal, X0, X1, 318);
     var perc = percussionItems(442);
     var items = strings.concat(madera, metal, perc);
-    SECTIONS.push({group:'Orquesta', id:'orq-completa', label:'Orquesta completa', items:items, vw:1370, vh:740});
+    var zones = [
+      {label:'Cuerda', kind:'strings', box:bbox(strings, 14)},
+      {label:'Viento madera', kind:'woodwind', box:bbox(madera, 14)},
+      {label:'Viento metal', kind:'brass', box:bbox(metal, 14)},
+      {label:'Percusión', kind:'percussion', box:bbox(perc, 14)}
+    ];
+    SECTIONS.push({group:'Orquesta', id:'orq-completa', label:'Orquesta completa', items:items, zones:zones, vw:1370, vh:740});
   })();
 
   (function(){
@@ -381,12 +414,19 @@
     SECTIONS.push({group:'Banda sinfónica', id:'banda-percusion', label:'Percusión', items:items, vw:1370, vh:420});
   })();
   (function(){
-    var madera = woodwindsBand(); layoutRow(madera, 20, 70);
-    var cuerda = stringsBand(); layoutRow(cuerda, 20, 194);
-    var metal = brassBand(); layoutRow(metal, 20, 318);
+    var X0 = 20, X1 = 1326;
+    var madera = woodwindsBand(); layoutRowFill(madera, X0, X1, 70);
+    var cuerda = stringsBand(); layoutRowFill(cuerda, X0, X1, 194);
+    var metal = brassBand(); layoutRowFill(metal, X0, X1, 318);
     var perc = percussionItems(442);
     var items = madera.concat(cuerda, metal, perc);
-    SECTIONS.push({group:'Banda sinfónica', id:'banda-entera', label:'Banda entera', items:items, vw:1370, vh:740});
+    var zones = [
+      {label:'Viento madera', kind:'woodwind', box:bbox(madera, 14)},
+      {label:'Cuerda', kind:'strings', box:bbox(cuerda, 14)},
+      {label:'Viento metal', kind:'brass', box:bbox(metal, 14)},
+      {label:'Percusión', kind:'percussion', box:bbox(perc, 14)}
+    ];
+    SECTIONS.push({group:'Banda sinfónica', id:'banda-entera', label:'Banda entera', items:items, zones:zones, vw:1370, vh:740});
   })();
 
   //=== Modal system ==========================================================
@@ -677,6 +717,21 @@
       return el;
     }
 
+    function buildZones(){
+      if(!cfg.zones) return;
+      cfg.zones.forEach(function(z){
+        var zoneEl = document.createElement('div');
+        zoneEl.className = 'zone zone-' + z.kind;
+        zoneEl.style.left = z.box.x + 'px';
+        zoneEl.style.top = z.box.y + 'px';
+        zoneEl.style.width = z.box.w + 'px';
+        zoneEl.style.height = z.box.h + 'px';
+        zoneEl.innerHTML = '<span class="zone-label">' + z.label + '</span>';
+        stage.appendChild(zoneEl);
+      });
+    }
+
+    buildZones();
     cfg.items.forEach(buildInstrumentEl);
 
     function addResizeHandle(el, isCircle){
