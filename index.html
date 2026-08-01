@@ -91,6 +91,12 @@
   .btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
   .btn.danger:hover{border-color:var(--danger);color:var(--danger);}
   .btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent);}
+  .btn.active{background:var(--accent);border-color:var(--accent);color:var(--on-accent);}
+
+  .section.select-mode .stage{cursor:crosshair;}
+  .section.select-mode .item{cursor:pointer;}
+  .section.select-mode .zone{cursor:pointer;}
+  .rubber-band{position:absolute;border:1.5px dashed var(--accent);background:rgba(201,122,43,.14);pointer-events:none;z-index:60;}
 
   input[type="color"]{width:32px;height:32px;padding:2px;border-radius:6px;border:1.5px solid var(--border);background:var(--bg-stage);cursor:pointer;}
 
@@ -625,6 +631,8 @@
           '<svg viewBox="0 0 24 24"><path d="M5 5h14M12 5v14"/></svg>Texto</button>' +
         '<input type="color" data-act="color" value="#2B4C78" title="Color de las nuevas formas y textos">' +
         '<span class="divider"></span>' +
+        '<button class="btn" data-act="select-mode" type="button" title="Modo selección múltiple: haz clic en varios elementos (o arrastra un recuadro) y vuelve a pulsar este botón para moverlos juntos">' +
+          '<svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2" stroke-dasharray="3 2.5"/><circle cx="4" cy="4" r="1.7" fill="currentColor" stroke="none"/><circle cx="20" cy="20" r="1.7" fill="currentColor" stroke="none"/></svg>Seleccionar</button>' +
         '<button class="btn" data-act="edit" type="button" title="Modificar el nombre, icono o subtítulo del elemento seleccionado">' +
           '<svg viewBox="0 0 24 24"><path d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17v3z"/><path d="M13.5 6.5l4 4"/></svg>Modificar</button>' +
         '<button class="btn danger" data-act="delete" type="button" title="Eliminar el elemento seleccionado (o pulsa Supr)">' +
@@ -650,12 +658,23 @@
     stage.style.width = VIRTUAL_W + 'px';
     stage.style.height = VIRTUAL_H + 'px';
 
-    var selected = null, addCount = 0;
+    var selectedSet = new Set();
+    var selectMode = false, addCount = 0;
 
-    function select(el){
-      if(selected) selected.classList.remove('selected');
-      selected = el;
-      if(selected) selected.classList.add('selected');
+    function clearSelection(){
+      selectedSet.forEach(function(e){ e.classList.remove('selected'); });
+      selectedSet.clear();
+    }
+    function selectOnly(el){
+      clearSelection();
+      if(el){ selectedSet.add(el); el.classList.add('selected'); }
+    }
+    function addToSelection(el){
+      selectedSet.add(el); el.classList.add('selected');
+    }
+    function toggleInSelection(el){
+      if(selectedSet.has(el)){ selectedSet.delete(el); el.classList.remove('selected'); }
+      else addToSelection(el);
     }
 
     function enableInlineEdit(target){
@@ -684,35 +703,51 @@
 
     function makeInteractive(el, w, h){
       el.dataset.w = w; el.dataset.h = h; el.tabIndex = 0;
-      var stageRect, offVX, offVY, dragging = false;
+      var THRESH = 4;
+      var startClientX, startClientY, dragging = false, moved = false, members = null;
 
       el.addEventListener('pointerdown', function(e){
         if(e.target.closest('.resize-handle')) return;
         if(el.getAttribute('contenteditable') === 'true') return;
-        select(el);
-        dragging = true;
-        stageRect = stage.getBoundingClientRect();
-        var f = scaleFactor();
-        var r = el.getBoundingClientRect();
-        offVX = (e.clientX - r.left) / f;
-        offVY = (e.clientY - r.top) / f;
-        el.classList.add('dragging');
-        el.setPointerCapture(e.pointerId);
+        e.stopPropagation();
+        startClientX = e.clientX; startClientY = e.clientY;
+        dragging = true; moved = false; members = null;
+        try{ el.setPointerCapture(e.pointerId); }catch(err){}
       });
       el.addEventListener('pointermove', function(e){
         if(!dragging) return;
+        var dxC = e.clientX - startClientX, dyC = e.clientY - startClientY;
+        if(!moved){
+          if(Math.abs(dxC) < THRESH && Math.abs(dyC) < THRESH) return;
+          moved = true;
+          if(selectMode) return;
+          el.classList.add('dragging');
+          if(!(selectedSet.has(el) && selectedSet.size > 1)) selectOnly(el);
+          members = Array.from(selectedSet.size > 1 ? selectedSet : [el]).map(function(m){
+            return { el:m, x:parseFloat(m.style.left)||0, y:parseFloat(m.style.top)||0,
+                     w:parseFloat(m.dataset.w), h:parseFloat(m.dataset.h) };
+          });
+        }
+        if(selectMode || !members) return;
         var f = scaleFactor();
-        var w2 = parseFloat(el.dataset.w), h2 = parseFloat(el.dataset.h);
-        var nx = ((e.clientX - stageRect.left) / f) - offVX;
-        var ny = ((e.clientY - stageRect.top) / f) - offVY;
-        el.style.left = clamp(nx, 0, VIRTUAL_W - w2) + 'px';
-        el.style.top = clamp(ny, 0, VIRTUAL_H - h2) + 'px';
+        var dxV = dxC / f, dyV = dyC / f;
+        members.forEach(function(mem){
+          var nx = clamp(mem.x + dxV, 0, VIRTUAL_W - mem.w);
+          var ny = clamp(mem.y + dyV, 0, VIRTUAL_H - mem.h);
+          mem.el.style.left = nx + 'px';
+          mem.el.style.top = ny + 'px';
+        });
       });
       function release(e){
         if(!dragging) return;
         dragging = false;
         el.classList.remove('dragging');
         try{ el.releasePointerCapture(e.pointerId); }catch(err){}
+        if(!moved){
+          if(selectMode) toggleInSelection(el);
+          else selectOnly(el);
+        }
+        members = null;
       }
       el.addEventListener('pointerup', release);
       el.addEventListener('pointercancel', release);
@@ -793,7 +828,7 @@
     stage.appendChild(stageHandle);
     stageHandle.addEventListener('pointerdown', function(e){
       e.stopPropagation();
-      stageHandle.setPointerCapture(e.pointerId);
+      try{ stageHandle.setPointerCapture(e.pointerId); }catch(err){}
       var startX = e.clientX, startY = e.clientY;
       var startW = VIRTUAL_W, startH = VIRTUAL_H;
       function move(ev){
@@ -819,8 +854,8 @@
       el.appendChild(handle);
       handle.addEventListener('pointerdown', function(e){
         e.stopPropagation();
-        select(el);
-        handle.setPointerCapture(e.pointerId);
+        selectOnly(el);
+        try{ handle.setPointerCapture(e.pointerId); }catch(err){}
         var startX = e.clientX, startY = e.clientY;
         var startW = parseFloat(el.dataset.w), startH = parseFloat(el.dataset.h);
         function move(ev){
@@ -851,7 +886,7 @@
       stage.appendChild(el);
       makeInteractive(el, size, size);
       addResizeHandle(el, kind === 'circle');
-      select(el);
+      selectOnly(el);
     }
 
     function addText(){
@@ -864,7 +899,7 @@
       stage.appendChild(el);
       makeInteractive(el, 70, 26);
       enableInlineEdit(el);
-      select(el);
+      selectOnly(el);
       setTimeout(function(){
         el.setAttribute('contenteditable', 'true');
         el.focus();
@@ -920,14 +955,25 @@
         btn.addEventListener('click', function(){ addShape(act); });
       } else if(act === 'text'){
         btn.addEventListener('click', addText);
+      } else if(act === 'select-mode'){
+        btn.addEventListener('click', function(){
+          selectMode = !selectMode;
+          btn.classList.toggle('active', selectMode);
+          container.classList.toggle('select-mode', selectMode);
+        });
       } else if(act === 'edit'){
-        btn.addEventListener('click', function(){ openEditModal(selected); });
+        btn.addEventListener('click', function(){
+          if(selectedSet.size === 1) openEditModal(Array.from(selectedSet)[0]);
+        });
       } else if(act === 'delete'){
-        btn.addEventListener('click', function(){ if(selected){ selected.remove(); selected = null; } });
+        btn.addEventListener('click', function(){
+          selectedSet.forEach(function(el){ el.remove(); });
+          selectedSet.clear();
+        });
       } else if(act === 'reset'){
         btn.addEventListener('click', function(){
           stage.querySelectorAll('.item, .zone').forEach(function(it){ it.remove(); });
-          addCount = 0; selected = null;
+          addCount = 0; selectedSet.clear();
           VIRTUAL_W = cfg.vw; VIRTUAL_H = cfg.vh;
           stage.style.width = VIRTUAL_W + 'px';
           stage.style.height = VIRTUAL_H + 'px';
@@ -938,15 +984,63 @@
       }
     });
 
-    stage.addEventListener('pointerdown', function(e){ if(e.target === stage) select(null); });
+    stage.addEventListener('pointerdown', function(e){
+      if(e.target !== stage) return;
+      var stageRect = stage.getBoundingClientRect();
+      var f = scaleFactor();
+      var startX = (e.clientX - stageRect.left) / f, startY = (e.clientY - stageRect.top) / f;
+      if(!selectMode){ clearSelection(); return; }
+
+      var band = document.createElement('div');
+      band.className = 'rubber-band';
+      stage.appendChild(band);
+      var bandMoved = false, lastRect = {x:startX,y:startY,w:0,h:0};
+
+      function updateBand(curX, curY){
+        var x = Math.min(startX, curX), y = Math.min(startY, curY);
+        var w = Math.abs(curX - startX), h = Math.abs(curY - startY);
+        band.style.left = x + 'px'; band.style.top = y + 'px';
+        band.style.width = w + 'px'; band.style.height = h + 'px';
+        lastRect = {x:x,y:y,w:w,h:h};
+      }
+      updateBand(startX, startY);
+      try{ stage.setPointerCapture(e.pointerId); }catch(err){}
+
+      function move(ev){
+        var cx = (ev.clientX - stageRect.left) / f, cy = (ev.clientY - stageRect.top) / f;
+        if(Math.abs(cx - startX) > 3 || Math.abs(cy - startY) > 3) bandMoved = true;
+        updateBand(cx, cy);
+      }
+      function up(ev){
+        try{ stage.releasePointerCapture(ev.pointerId); }catch(err){}
+        stage.removeEventListener('pointermove', move);
+        stage.removeEventListener('pointerup', up);
+        band.remove();
+        if(bandMoved){
+          if(!ev.shiftKey) clearSelection();
+          stage.querySelectorAll('.item, .zone').forEach(function(cand){
+            var cx0 = parseFloat(cand.style.left) || 0, cy0 = parseFloat(cand.style.top) || 0;
+            var cw = parseFloat(cand.dataset.w) || cand.offsetWidth, ch = parseFloat(cand.dataset.h) || cand.offsetHeight;
+            var hit = cx0 < lastRect.x + lastRect.w && cx0 + cw > lastRect.x && cy0 < lastRect.y + lastRect.h && cy0 + ch > lastRect.y;
+            if(hit) addToSelection(cand);
+          });
+        } else {
+          clearSelection();
+        }
+      }
+      stage.addEventListener('pointermove', move);
+      stage.addEventListener('pointerup', up);
+    });
 
     document.addEventListener('keydown', function(e){
       if(!container.classList.contains('active')) return;
       if(document.activeElement && document.activeElement.getAttribute && document.activeElement.getAttribute('contenteditable') === 'true') return;
-      if((e.key === 'Delete' || e.key === 'Backspace') && selected){
-        e.preventDefault(); selected.remove(); selected = null;
+      if((e.key === 'Delete' || e.key === 'Backspace') && selectedSet.size){
+        e.preventDefault();
+        selectedSet.forEach(function(el){ el.remove(); });
+        selectedSet.clear();
       }
-      if(e.key === 'Escape') select(null);
+      if(e.key === 'Escape') clearSelection();
     });
 
     var resizeTimer;
