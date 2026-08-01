@@ -60,7 +60,7 @@
     -webkit-font-smoothing:antialiased;
   }
 
-  .app{display:flex;flex-direction:column;height:100vh;gap:10px;padding:14px clamp(10px,3vw,24px) 14px;}
+  .app{display:flex;flex-direction:column;min-height:100vh;gap:10px;padding:14px clamp(10px,3vw,24px) 14px;}
 
   h1{
     margin:0;font-size:clamp(15px,2vw,21px);font-weight:700;letter-spacing:.05em;
@@ -94,11 +94,11 @@
 
   input[type="color"]{width:32px;height:32px;padding:2px;border-radius:6px;border:1.5px solid var(--border);background:var(--bg-stage);cursor:pointer;}
 
-  .sections-host{flex:1;min-height:0;display:flex;flex-direction:column;position:relative;}
-  .section{display:none;flex-direction:column;gap:10px;flex:1;min-height:0;}
+  .sections-host{flex:1;display:flex;flex-direction:column;}
+  .section{display:none;flex-direction:column;gap:10px;flex:1;}
   .section.active{display:flex;}
 
-  .stage-wrap{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;border-radius:10px;border:1px solid var(--grid-line-major);background:var(--bg-stage);}
+  .stage-wrap{flex:1;overflow:hidden;border-radius:10px;border:1px solid var(--grid-line-major);background:var(--bg-stage);}
   .stage-scale{position:relative;width:100%;}
   .stage{
     position:absolute;top:0;left:0;
@@ -270,42 +270,44 @@
 
   //=== Instrument-family factories ==========================================
   function stringsOrchestra(){ return [
-    {label:'Violín I', icon:ICONS.violin, w:96, h:84},
-    {label:'Violín II', icon:ICONS.violin, w:96, h:84},
-    {label:'Viola', icon:ICONS.violin, w:96, h:84},
-    {label:'Violonchelo', icon:ICONS.cello, w:104, h:84},
     {label:'Contrabajo', icon:ICONS.bass, w:108, h:84},
+    {label:'Violonchelo', icon:ICONS.cello, w:104, h:84},
+    {label:'Viola', icon:ICONS.violin, w:96, h:84},
+    {label:'Violín II', icon:ICONS.violin, w:96, h:84},
+    {label:'Violín I', icon:ICONS.violin, w:96, h:84},
     {label:'Arpa', icon:ICONS.harp, w:96, h:84}
   ]; }
-  function windsOrchestra(){ return [
-    {label:'Flauta', icon:ICONS.flute, w:96, h:84},
-    {label:'Oboe', icon:ICONS.woodwind, w:96, h:84},
-    {label:'Clarinete', icon:ICONS.woodwind, w:96, h:84},
+  function woodwindsOrchestra(){ return [
     {label:'Fagot', icon:ICONS.bassoon, w:100, h:84},
-    {label:'Trompeta', icon:ICONS.trumpet, w:100, h:84},
-    {label:'Trompa', icon:ICONS.horn, w:100, h:84},
+    {label:'Oboe', icon:ICONS.woodwind, w:96, h:84},
+    {label:'Flauta', icon:ICONS.flute, w:96, h:84},
+    {label:'Clarinete', icon:ICONS.woodwind, w:96, h:84}
+  ]; }
+  function brassOrchestra(){ return [
+    {label:'Tuba', icon:ICONS.tuba, w:108, h:84},
     {label:'Trombón', icon:ICONS.trombone, w:100, h:84},
-    {label:'Tuba', icon:ICONS.tuba, w:108, h:84}
+    {label:'Trompeta', icon:ICONS.trumpet, w:100, h:84},
+    {label:'Trompa', icon:ICONS.horn, w:100, h:84}
   ]; }
   function woodwindsBand(){ return [
+    {label:'Fagot', icon:ICONS.bassoon, w:100, h:84},
+    {label:'Oboe', icon:ICONS.woodwind, w:96, h:84},
     {label:'Flauta', icon:ICONS.flute, w:96, h:84},
     {label:'Clarinete', icon:ICONS.woodwind, w:96, h:84},
-    {label:'Oboe', icon:ICONS.woodwind, w:96, h:84},
-    {label:'Fagot', icon:ICONS.bassoon, w:100, h:84},
     {label:'Saxofón alto', icon:ICONS.sax, w:100, h:84},
     {label:'Saxofón tenor', icon:ICONS.sax, w:100, h:84},
     {label:'Saxofón barítono', icon:ICONS.sax, w:106, h:84}
   ]; }
   function stringsBand(){ return [
-    {label:'Violonchelo', icon:ICONS.cello, w:104, h:84},
-    {label:'Contrabajo', icon:ICONS.bass, w:108, h:84}
+    {label:'Contrabajo', icon:ICONS.bass, w:108, h:84},
+    {label:'Violonchelo', icon:ICONS.cello, w:104, h:84}
   ]; }
   function brassBand(){ return [
-    {label:'Trompeta', icon:ICONS.trumpet, w:100, h:84},
-    {label:'Trompa', icon:ICONS.horn, w:100, h:84},
-    {label:'Trombón', icon:ICONS.trombone, w:100, h:84},
+    {label:'Tuba', icon:ICONS.tuba, w:108, h:84},
     {label:'Bombardino', icon:ICONS.euphonium, w:104, h:84},
-    {label:'Tuba', icon:ICONS.tuba, w:108, h:84}
+    {label:'Trombón', icon:ICONS.trombone, w:100, h:84},
+    {label:'Trompeta', icon:ICONS.trumpet, w:100, h:84},
+    {label:'Trompa', icon:ICONS.horn, w:100, h:84}
   ]; }
   function percussionItems(baseY){
     var rel = (baseY===undefined ? 44 : baseY) - 44;
@@ -344,8 +346,10 @@
     SECTIONS.push({group:'Orquesta', id:'orq-cuerda', label:'Cuerda', items:items, vw:Math.max(700, endX+20), vh:300});
   })();
   (function(){
-    var items = windsOrchestra(); var endX = layoutRow(items, 20, 155);
-    SECTIONS.push({group:'Orquesta', id:'orq-vientos', label:'Vientos', items:items, vw:Math.max(700, endX+20), vh:300});
+    var madera = woodwindsOrchestra(); var e1 = layoutRow(madera, 20, 140);
+    var metal = brassOrchestra(); var e2 = layoutRow(metal, 20, 264);
+    var items = madera.concat(metal);
+    SECTIONS.push({group:'Orquesta', id:'orq-vientos', label:'Vientos', items:items, vw:Math.max(560, e1+20, e2+20), vh:400});
   })();
   (function(){
     var items = percussionItems(44);
@@ -353,10 +357,11 @@
   })();
   (function(){
     var strings = stringsOrchestra(); layoutRow(strings, 20, 70);
-    var winds = windsOrchestra(); layoutRow(winds, 20, 194);
-    var perc = percussionItems(318);
-    var items = strings.concat(winds, perc);
-    SECTIONS.push({group:'Orquesta', id:'orq-completa', label:'Orquesta completa', items:items, vw:1370, vh:600});
+    var madera = woodwindsOrchestra(); layoutRow(madera, 20, 194);
+    var metal = brassOrchestra(); layoutRow(metal, 20, 318);
+    var perc = percussionItems(442);
+    var items = strings.concat(madera, metal, perc);
+    SECTIONS.push({group:'Orquesta', id:'orq-completa', label:'Orquesta completa', items:items, vw:1370, vh:740});
   })();
 
   (function(){
