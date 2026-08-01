@@ -356,33 +356,39 @@
       {label:'Campanas tubulares', icon:ICONS.campanas, w:114, h:84, x:1212, y:155+rel}
     ];
   }
-  function layoutRow(items, x0, y){
-    var GAP = 14, x = x0;
-    items.forEach(function(d){ d.x = x; d.y = y; x += d.w + GAP; });
-    return x;
-  }
-  function layoutRowFill(items, x0, xEnd, y){
-    var totalW = items.reduce(function(s,d){ return s + d.w; }, 0);
-    var n = items.length;
-    var gap = n > 1 ? (xEnd - x0 - totalW) / (n - 1) : 0;
-    var x = x0;
-    items.forEach(function(d){ d.x = x; d.y = y; x += d.w + gap; });
-  }
-  // Lays out items left-to-right (packed or filling x0..xEnd), then curves the
-  // first `arcCount` of them into a shallow arc (like a string section facing
-  // the audience); any remaining items (e.g. the harp) sit further back.
-  function layoutArc(items, x0, xEnd, baseY, amplitude, fill, arcCount){
-    if(fill) layoutRowFill(items, x0, xEnd, baseY);
-    else layoutRow(items, x0, baseY);
-    var n = arcCount || items.length;
+  // Curves the first `arcCount` items into a shallow arc that opens toward the
+  // audience (edges closest to the public, center further back — like a real
+  // string/wind section curving around the conductor); any remaining items
+  // (e.g. the harp) sit further back still.
+  function curveRow(items, baseY, amplitude, arcCount){
+    var n = arcCount === undefined ? items.length : arcCount;
     items.forEach(function(d, i){
       if(i < n){
         var u = n > 1 ? (i / (n - 1)) * 2 - 1 : 0;
-        d.y = baseY + amplitude * u * u;
+        d.y = baseY + amplitude * (1 - u * u);
       } else {
         d.y = baseY + amplitude + 35;
       }
     });
+  }
+  // Compact, left-anchored curved row (for a section that lives on its own).
+  function layoutArc(items, x0, baseY, amplitude, gap, arcCount){
+    gap = gap || 16;
+    var x = x0;
+    items.forEach(function(d){ d.x = x; x += d.w + gap; });
+    curveRow(items, baseY, amplitude, arcCount);
+    return x - gap;
+  }
+  // Compact curved row centered on a shared axis (for stacking sections into
+  // one fan/wedge silhouette, as in a real orchestra or band layout).
+  function layoutArcCentered(items, centerX, baseY, amplitude, gap, arcCount){
+    gap = gap || 16;
+    var x = 0;
+    items.forEach(function(d){ d.x = x; x += d.w + gap; });
+    var totalW = x - gap;
+    var offset = centerX - totalW / 2;
+    items.forEach(function(d){ d.x += offset; });
+    curveRow(items, baseY, amplitude, arcCount);
   }
   function bbox(items, padX, padY){
     if(padY === undefined) padY = padX;
@@ -393,42 +399,36 @@
     });
     return { x:minX-padX, y:minY-padY, w:(maxX-minX)+2*padX, h:(maxY-minY)+2*padY };
   }
-  function cloneItems(items){
-    return items.map(function(d){ var c={}; for(var k in d) c[k]=d[k]; return c; });
-  }
 
   //=== Build section configs ================================================
   var SECTIONS = [];
   var ROW_GAP = 90;   // vertical breathing room between family rows
   var ZONE_PAD_X = 20, ZONE_PAD_Y = 45;  // padding around each section's colored zone
+  function rowBottom(items){ return Math.max.apply(null, items.map(function(d){ return d.y + d.h; })); }
+  function rowRight(items){ return Math.max.apply(null, items.map(function(d){ return d.x + d.w; })); }
 
   (function(){
     var strings = stringsOrchestra().concat([harpItem()]);
-    layoutArc(strings, 20, 0, 100, 70, false, 5);
-    var last = strings[strings.length-1];
-    SECTIONS.push({group:'Orquesta', id:'orq-cuerda', label:'Cuerda', items:strings, vw:Math.max(760, last.x+last.w+30), vh:360});
+    layoutArc(strings, 20, 90, 70, 16, 5);
+    SECTIONS.push({group:'Orquesta', id:'orq-cuerda', label:'Cuerda', items:strings, vw:rowRight(strings)+30, vh:rowBottom(strings)+60});
   })();
   (function(){
-    var madera = woodwindsOrchestra(); var e1 = layoutRow(madera, 20, 130);
-    var metal = brassOrchestra(); var e2 = layoutRow(metal, 20, 130+84+ROW_GAP);
+    var madera = woodwindsOrchestra(); layoutArc(madera, 20, 110, 40, 16);
+    var metal = brassOrchestra(); layoutArc(metal, 20, rowBottom(madera)+ROW_GAP, 32, 16);
     var items = madera.concat(metal);
-    SECTIONS.push({group:'Orquesta', id:'orq-vientos', label:'Vientos', items:items, vw:Math.max(560, e1+20, e2+20), vh:130+84+ROW_GAP+84+50});
+    SECTIONS.push({group:'Orquesta', id:'orq-vientos', label:'Vientos', items:items, vw:Math.max(rowRight(madera), rowRight(metal))+30, vh:rowBottom(metal)+60});
   })();
   (function(){
     var items = percussionItems(44);
     SECTIONS.push({group:'Orquesta', id:'orq-percusion', label:'Percusión', items:items, vw:1370, vh:460});
   })();
   (function(){
-    var X0 = 20, X1 = 1326;
+    var CX = 673; // shared axis all rows fan out from, matching percussion's own center
     var strings = stringsOrchestra().concat([harpItem()]);
-    layoutArc(strings, X0, X1, 80, 65, true, 5);
-    var stringsBottom = Math.max.apply(null, strings.map(function(d){ return d.y + d.h; }));
-    var maderaY = stringsBottom + ROW_GAP;
-    var madera = woodwindsOrchestra(); layoutRowFill(madera, X0, X1, maderaY);
-    var metalY = maderaY + 84 + ROW_GAP;
-    var metal = brassOrchestra(); layoutRowFill(metal, X0, X1, metalY);
-    var percY = metalY + 84 + ROW_GAP;
-    var perc = percussionItems(percY);
+    layoutArcCentered(strings, CX, 90, 70, 16, 5);
+    var madera = woodwindsOrchestra(); layoutArcCentered(madera, CX, rowBottom(strings)+ROW_GAP, 40, 16);
+    var metal = brassOrchestra(); layoutArcCentered(metal, CX, rowBottom(madera)+ROW_GAP, 32, 16);
+    var perc = percussionItems(rowBottom(metal)+ROW_GAP);
     var items = strings.concat(madera, metal, perc);
     var zones = [
       {label:'Cuerda', kind:'strings', box:bbox(strings, ZONE_PAD_X, ZONE_PAD_Y)},
@@ -436,36 +436,31 @@
       {label:'Viento metal', kind:'brass', box:bbox(metal, ZONE_PAD_X, ZONE_PAD_Y)},
       {label:'Percusión', kind:'percussion', box:bbox(perc, ZONE_PAD_X, ZONE_PAD_Y)}
     ];
-    var percBottom = Math.max.apply(null, perc.map(function(d){ return d.y + d.h; }));
-    SECTIONS.push({group:'Orquesta', id:'orq-completa', label:'Orquesta completa', items:items, zones:zones, vw:1370, vh:percBottom+60});
+    SECTIONS.push({group:'Orquesta', id:'orq-completa', label:'Orquesta completa', items:items, zones:zones, vw:1370, vh:rowBottom(perc)+60});
   })();
 
   (function(){
-    var items = woodwindsBand(); var endX = layoutRow(items, 20, 155);
-    SECTIONS.push({group:'Banda sinfónica', id:'banda-madera', label:'Viento madera', items:items, vw:Math.max(700, endX+20), vh:360});
+    var items = woodwindsBand(); layoutArc(items, 20, 130, 40, 16);
+    SECTIONS.push({group:'Banda sinfónica', id:'banda-madera', label:'Viento madera', items:items, vw:rowRight(items)+30, vh:rowBottom(items)+60});
   })();
   (function(){
-    var items = stringsBand(); var endX = layoutRow(items, 20, 155);
-    SECTIONS.push({group:'Banda sinfónica', id:'banda-cuerda', label:'Cuerda', items:items, vw:Math.max(500, endX+20), vh:360});
+    var items = stringsBand(); layoutArc(items, 20, 130, 0, 16);
+    SECTIONS.push({group:'Banda sinfónica', id:'banda-cuerda', label:'Cuerda', items:items, vw:rowRight(items)+30, vh:rowBottom(items)+60});
   })();
   (function(){
-    var items = brassBand(); var endX = layoutRow(items, 20, 155);
-    SECTIONS.push({group:'Banda sinfónica', id:'banda-metal', label:'Viento metal', items:items, vw:Math.max(700, endX+20), vh:360});
+    var items = brassBand(); layoutArc(items, 20, 130, 32, 16);
+    SECTIONS.push({group:'Banda sinfónica', id:'banda-metal', label:'Viento metal', items:items, vw:rowRight(items)+30, vh:rowBottom(items)+60});
   })();
   (function(){
     var items = percussionItems(44);
     SECTIONS.push({group:'Banda sinfónica', id:'banda-percusion', label:'Percusión', items:items, vw:1370, vh:460});
   })();
   (function(){
-    var X0 = 20, X1 = 1326;
-    var maderaY = 70;
-    var madera = woodwindsBand(); layoutRowFill(madera, X0, X1, maderaY);
-    var cuerdaY = maderaY + 84 + ROW_GAP;
-    var cuerda = stringsBand(); layoutRowFill(cuerda, X0, X1, cuerdaY);
-    var metalY = cuerdaY + 84 + ROW_GAP;
-    var metal = brassBand(); layoutRowFill(metal, X0, X1, metalY);
-    var percY = metalY + 84 + ROW_GAP;
-    var perc = percussionItems(percY);
+    var CX = 673;
+    var madera = woodwindsBand(); layoutArcCentered(madera, CX, 70, 40, 16);
+    var cuerda = stringsBand(); layoutArc(cuerda, 60, rowBottom(madera)+ROW_GAP, 0, 16);
+    var metal = brassBand(); layoutArcCentered(metal, CX, rowBottom(cuerda)+ROW_GAP, 32, 16);
+    var perc = percussionItems(rowBottom(metal)+ROW_GAP);
     var items = madera.concat(cuerda, metal, perc);
     var zones = [
       {label:'Viento madera', kind:'woodwind', box:bbox(madera, ZONE_PAD_X, ZONE_PAD_Y)},
@@ -473,8 +468,7 @@
       {label:'Viento metal', kind:'brass', box:bbox(metal, ZONE_PAD_X, ZONE_PAD_Y)},
       {label:'Percusión', kind:'percussion', box:bbox(perc, ZONE_PAD_X, ZONE_PAD_Y)}
     ];
-    var percBottom = Math.max.apply(null, perc.map(function(d){ return d.y + d.h; }));
-    SECTIONS.push({group:'Banda sinfónica', id:'banda-entera', label:'Banda entera', items:items, zones:zones, vw:1370, vh:percBottom+60});
+    SECTIONS.push({group:'Banda sinfónica', id:'banda-entera', label:'Banda entera', items:items, zones:zones, vw:1370, vh:rowBottom(perc)+60});
   })();
 
   //=== Modal system ==========================================================
