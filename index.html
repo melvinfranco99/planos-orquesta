@@ -112,8 +112,12 @@
     transform-origin:top left;
   }
 
-  .zone{position:absolute;border-radius:12px;pointer-events:none;}
+  .zone{position:absolute;border-radius:12px;cursor:grab;touch-action:none;user-select:none;}
+  .zone:active{cursor:grabbing;}
+  .zone.selected{outline:2px solid var(--accent);outline-offset:2px;}
+  .zone:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
   .zone-label{position:absolute;top:7px;left:11px;font-size:9.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;opacity:.9;}
+  .zone-label[contenteditable="true"]{outline:1px dashed currentColor;border-radius:2px;cursor:text;}
   .zone-strings{background:rgba(139,92,246,.10);border:1.5px dashed rgba(139,92,246,.55);}
   .zone-strings .zone-label{color:#8B5CF6;}
   .zone-woodwind{background:rgba(34,197,94,.10);border:1.5px dashed rgba(34,197,94,.55);}
@@ -163,7 +167,13 @@
   .item.shape.text:hover{border-color:var(--grid-line-major);}
   .item.shape.text[contenteditable="true"]{border-color:var(--accent);cursor:text;}
 
-  .resize-handle{position:absolute;right:-5px;bottom:-5px;width:12px;height:12px;border-radius:3px;background:var(--accent);border:1.5px solid var(--bg-stage);cursor:nwse-resize;touch-action:none;}
+  .resize-handle{position:absolute;right:-5px;bottom:-5px;width:12px;height:12px;border-radius:3px;background:var(--accent);border:1.5px solid var(--bg-stage);cursor:nwse-resize;touch-action:none;z-index:30;}
+
+  .stage-resize-handle{
+    position:absolute;right:0;bottom:0;width:28px;height:28px;cursor:nwse-resize;touch-action:none;z-index:40;
+    background:linear-gradient(135deg, transparent 50%, var(--accent) 50%);opacity:.5;border-radius:0 0 10px 0;
+  }
+  .stage-resize-handle:hover{opacity:.9;}
 
   .modal-overlay{position:fixed;inset:0;background:rgba(8,16,28,.55);display:flex;align-items:center;justify-content:center;z-index:200;padding:20px;}
   .modal-overlay[hidden]{display:none;}
@@ -278,6 +288,11 @@
     {key:'dot',label:'Genérico',group:'Otro'},
     {key:'generic',label:'Genérico (nota)',group:'Otro'}
   ];
+
+  function findIconKey(svgHtml){
+    for(var k in ICONS){ if(ICONS[k] === svgHtml) return k; }
+    return 'generic';
+  }
 
   //=== Instrument-family factories ==========================================
   function stringsOrchestra(){ return [
@@ -437,11 +452,12 @@
   var modalCancel = document.getElementById('modalCancel');
   var modalOnConfirm = null;
 
-  function openModal(title, bodyEl, onConfirm){
+  function openModal(title, bodyEl, onConfirm, confirmLabel){
     modalTitle.textContent = title;
     modalBody.innerHTML = '';
     modalBody.appendChild(bodyEl);
     modalOnConfirm = onConfirm;
+    modalConfirm.textContent = confirmLabel || 'Crear';
     modalOverlay.hidden = false;
   }
   function closeModal(){
@@ -555,6 +571,37 @@
     setTimeout(function(){ nameInput.focus(); nameInput.select(); }, 0);
   }
 
+  function openRenameModal(title, currentValue, onSave){
+    var body = document.createElement('div');
+    var label = document.createElement('label'); label.textContent = 'Nombre';
+    var input = document.createElement('input'); input.type = 'text'; input.value = currentValue;
+    body.appendChild(label); body.appendChild(input);
+    openModal(title, body, function(){
+      var v = input.value.trim();
+      if(!v){ input.focus(); return false; }
+      onSave(v);
+    }, 'Guardar');
+    setTimeout(function(){ input.focus(); input.select(); }, 0);
+  }
+
+  function openEditInstrumentModal(currentName, currentIconKey, onSave){
+    var body = document.createElement('div');
+    var label1 = document.createElement('label'); label1.textContent = 'Nombre del instrumento';
+    var nameInput = document.createElement('input'); nameInput.type = 'text'; nameInput.value = currentName;
+    body.appendChild(label1); body.appendChild(nameInput);
+    var label2 = document.createElement('label'); label2.textContent = 'Icono';
+    body.appendChild(label2);
+    var grid = buildIconGrid(currentIconKey);
+    body.appendChild(grid.el);
+
+    openModal('Modificar instrumento', body, function(){
+      var name = nameInput.value.trim();
+      if(!name){ nameInput.focus(); return false; }
+      onSave(name, grid.getKey());
+    }, 'Guardar');
+    setTimeout(function(){ nameInput.focus(); nameInput.select(); }, 0);
+  }
+
   //=== Section factory =======================================================
   function clamp(val, min, max){ return Math.max(min, Math.min(max, val)); }
 
@@ -578,6 +625,8 @@
           '<svg viewBox="0 0 24 24"><path d="M5 5h14M12 5v14"/></svg>Texto</button>' +
         '<input type="color" data-act="color" value="#2B4C78" title="Color de las nuevas formas y textos">' +
         '<span class="divider"></span>' +
+        '<button class="btn" data-act="edit" type="button" title="Modificar el nombre, icono o subtítulo del elemento seleccionado">' +
+          '<svg viewBox="0 0 24 24"><path d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17v3z"/><path d="M13.5 6.5l4 4"/></svg>Modificar</button>' +
         '<button class="btn danger" data-act="delete" type="button" title="Eliminar el elemento seleccionado (o pulsa Supr)">' +
           '<svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>Eliminar</button>' +
         '<button class="btn" data-act="reset" type="button" title="Volver al plano inicial de esta sección">' +
@@ -711,6 +760,7 @@
         html += '<span class="sizes">' + def.sizes.map(function(s){ return '<span>' + s + '</span>'; }).join('') + '</span>';
       }
       el.innerHTML = html;
+      if(!def.tray && def.icon) el.dataset.iconKey = def.iconKey || findIconKey(def.icon);
       stage.appendChild(el);
       makeInteractive(el, def.w, def.h);
       enableInlineEdit(el.querySelector('.label'));
@@ -728,11 +778,40 @@
         zoneEl.style.height = z.box.h + 'px';
         zoneEl.innerHTML = '<span class="zone-label">' + z.label + '</span>';
         stage.appendChild(zoneEl);
+        makeInteractive(zoneEl, z.box.w, z.box.h);
+        addResizeHandle(zoneEl, false);
+        enableInlineEdit(zoneEl.querySelector('.zone-label'));
       });
     }
 
     buildZones();
     cfg.items.forEach(buildInstrumentEl);
+
+    var stageHandle = document.createElement('div');
+    stageHandle.className = 'stage-resize-handle';
+    stageHandle.title = 'Arrastra para ampliar o reducir el escenario';
+    stage.appendChild(stageHandle);
+    stageHandle.addEventListener('pointerdown', function(e){
+      e.stopPropagation();
+      stageHandle.setPointerCapture(e.pointerId);
+      var startX = e.clientX, startY = e.clientY;
+      var startW = VIRTUAL_W, startH = VIRTUAL_H;
+      function move(ev){
+        var f = scaleFactor();
+        VIRTUAL_W = Math.max(500, startW + (ev.clientX - startX) / f);
+        VIRTUAL_H = Math.max(280, startH + (ev.clientY - startY) / f);
+        stage.style.width = VIRTUAL_W + 'px';
+        stage.style.height = VIRTUAL_H + 'px';
+        updateScale();
+      }
+      function up(ev){
+        try{ stageHandle.releasePointerCapture(ev.pointerId); }catch(err){}
+        stageHandle.removeEventListener('pointermove', move);
+        stageHandle.removeEventListener('pointerup', up);
+      }
+      stageHandle.addEventListener('pointermove', move);
+      stageHandle.addEventListener('pointerup', up);
+    });
 
     function addResizeHandle(el, isCircle){
       var handle = document.createElement('div');
@@ -793,6 +872,33 @@
       }, 0);
     }
 
+    function openEditModal(el){
+      if(!el) return;
+      if(el.classList.contains('zone')){
+        var zoneLabel = el.querySelector('.zone-label');
+        openRenameModal('Modificar subtítulo de sección', zoneLabel.textContent, function(v){ zoneLabel.textContent = v; });
+        return;
+      }
+      if(el.classList.contains('shape')){
+        if(el.classList.contains('text')){
+          openRenameModal('Modificar texto', el.textContent, function(v){ el.textContent = v; });
+        }
+        return;
+      }
+      var labelSpan = el.querySelector('.label');
+      if(!labelSpan) return;
+      if(el.classList.contains('tray')){
+        openRenameModal('Modificar bandeja', labelSpan.textContent, function(v){ labelSpan.textContent = v; });
+        return;
+      }
+      openEditInstrumentModal(labelSpan.textContent, el.dataset.iconKey || 'generic', function(name, iconKey){
+        labelSpan.textContent = name;
+        var iconHolder = el.querySelector('.icon');
+        if(iconHolder) iconHolder.outerHTML = ICONS[iconKey] || ICONS.generic;
+        el.dataset.iconKey = iconKey;
+      });
+    }
+
     container.querySelectorAll('[data-act]').forEach(function(btn){
       var act = btn.dataset.act;
       if(act === 'instrument'){
@@ -814,13 +920,20 @@
         btn.addEventListener('click', function(){ addShape(act); });
       } else if(act === 'text'){
         btn.addEventListener('click', addText);
+      } else if(act === 'edit'){
+        btn.addEventListener('click', function(){ openEditModal(selected); });
       } else if(act === 'delete'){
         btn.addEventListener('click', function(){ if(selected){ selected.remove(); selected = null; } });
       } else if(act === 'reset'){
         btn.addEventListener('click', function(){
-          stage.querySelectorAll('.item').forEach(function(it){ it.remove(); });
+          stage.querySelectorAll('.item, .zone').forEach(function(it){ it.remove(); });
           addCount = 0; selected = null;
+          VIRTUAL_W = cfg.vw; VIRTUAL_H = cfg.vh;
+          stage.style.width = VIRTUAL_W + 'px';
+          stage.style.height = VIRTUAL_H + 'px';
+          buildZones();
           cfg.items.forEach(buildInstrumentEl);
+          updateScale();
         });
       }
     });
