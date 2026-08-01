@@ -52,6 +52,7 @@
   }
 
   *{box-sizing:border-box;}
+  [hidden]{display:none !important;}
   html,body{margin:0;padding:0;height:100%;}
   body{
     background:var(--bg-page);
@@ -62,10 +63,27 @@
 
   .app{display:flex;flex-direction:column;min-height:100vh;gap:10px;padding:14px clamp(10px,3vw,24px) 14px;}
 
-  h1{
-    margin:0;font-size:clamp(15px,2vw,21px);font-weight:700;letter-spacing:.05em;
-    text-transform:uppercase;text-wrap:balance;border-bottom:2px solid var(--border);padding-bottom:10px;
+  .app-header{
+    display:flex;align-items:flex-end;justify-content:space-between;gap:14px;flex-wrap:wrap;
+    border-bottom:2px solid var(--border);padding-bottom:10px;
   }
+  h1{margin:0;font-size:clamp(15px,2vw,21px);font-weight:700;letter-spacing:.05em;text-transform:uppercase;text-wrap:balance;}
+
+  .session-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+  .session-user{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-dim);margin-right:4px;}
+  .session-user::before{content:"● "; color:var(--accent);}
+
+  .login-overlay{position:fixed;inset:0;background:var(--bg-page);display:flex;align-items:center;justify-content:center;z-index:300;padding:20px;}
+  .login-box{
+    background:var(--bg-stage);border:1.5px solid var(--border);border-radius:12px;padding:26px 30px 30px;
+    width:min(360px,100%);display:flex;flex-direction:column;box-shadow:var(--shadow-drag);
+  }
+  .login-box h2{margin:0;font-size:16px;text-transform:uppercase;letter-spacing:.05em;}
+  .login-box .login-sub{margin:4px 0 18px;font-size:12px;color:var(--ink-dim);}
+  .login-box label{font-size:10.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-dim);margin:10px 0 5px;}
+  .login-box input{padding:9px 11px;border-radius:5px;border:1.5px solid var(--border);background:var(--bg-page);color:var(--ink);font:inherit;font-size:13px;}
+  .login-box .login-error{color:var(--danger);font-size:12px;margin:10px 0 0;}
+  .login-box .btn.primary{margin-top:18px;justify-content:center;}
 
   .tabs-wrap{display:flex;flex-direction:column;gap:6px;}
   .tab-group{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
@@ -200,12 +218,34 @@
   @media (prefers-reduced-motion: no-preference){.item{transition:box-shadow .15s ease;}}
 </style>
 
-<div class="app">
-  <h1>Planos de Escenario — Orquesta y Banda Sinfónica</h1>
+<div class="app" id="appRoot" hidden>
+  <div class="app-header">
+    <h1>Planos de Escenario — Orquesta y Banda Sinfónica</h1>
+    <div class="session-bar">
+      <span class="session-user" id="sessionUser"></span>
+      <button class="btn" id="exportBtn" type="button" title="Descarga un archivo con tu composición completa">Exportar</button>
+      <label class="btn" id="importLabel" title="Carga una composición exportada previamente">Importar<input type="file" id="importFile" accept="application/json" hidden></label>
+      <button class="btn" id="githubSaveBtn" type="button" title="Copia la composición y abre GitHub para guardarla en el repositorio">Guardar en GitHub</button>
+      <button class="btn" id="logoutBtn" type="button">Cerrar sesión</button>
+    </div>
+  </div>
 
   <div class="tabs-wrap" id="tabsWrap"></div>
 
   <div class="sections-host" id="sectionsHost"></div>
+</div>
+
+<div class="login-overlay" id="loginOverlay">
+  <form class="login-box" id="loginForm">
+    <h2>Iniciar sesión</h2>
+    <p class="login-sub">Planos de Escenario — Orquesta y Banda Sinfónica</p>
+    <label for="loginUser">Usuario</label>
+    <input type="text" id="loginUser" autocomplete="username" required>
+    <label for="loginPass">Contraseña</label>
+    <input type="password" id="loginPass" autocomplete="current-password" required>
+    <p class="login-error" id="loginError" hidden>Usuario o contraseña incorrectos.</p>
+    <button class="btn primary" type="submit">Entrar</button>
+  </form>
 </div>
 
 <div class="modal-overlay" id="modalOverlay" hidden>
@@ -706,7 +746,7 @@
         var sel = window.getSelection();
         sel.removeAllRanges(); sel.addRange(range);
       });
-      target.addEventListener('blur', function(){ target.removeAttribute('contenteditable'); });
+      target.addEventListener('blur', function(){ target.removeAttribute('contenteditable'); scheduleSave(); });
       target.addEventListener('keydown', function(e){
         if(e.key === 'Enter'){ e.preventDefault(); target.blur(); }
         e.stopPropagation();
@@ -768,6 +808,8 @@
         if(!moved){
           if(shiftAtDown) toggleInSelection(el);
           else selectOnly(el);
+        } else {
+          scheduleSave();
         }
         members = null;
       }
@@ -789,6 +831,7 @@
           var w2 = parseFloat(el.dataset.w), h2 = parseFloat(el.dataset.h);
           el.style.left = clamp(cur.left, 0, VIRTUAL_W - w2) + 'px';
           el.style.top = clamp(cur.top, 0, VIRTUAL_H - h2) + 'px';
+          scheduleSave();
         }
       });
     }
@@ -810,7 +853,8 @@
       html += '<span class="label">' + def.label + '</span>';
       if(def.sub && def.sub.length){
         html += '<span class="sub-list">' + def.sub.map(function(s){
-          return '<span class="sub-item">' + s.icon + '<span>' + s.text + '</span></span>';
+          var k = s.iconKey || findIconKey(s.icon);
+          return '<span class="sub-item" data-icon-key="' + k + '">' + s.icon + '<span>' + s.text + '</span></span>';
         }).join('') + '</span>';
       }
       if(def.sizes){
@@ -865,6 +909,7 @@
         try{ stageHandle.releasePointerCapture(ev.pointerId); }catch(err){}
         stageHandle.removeEventListener('pointermove', move);
         stageHandle.removeEventListener('pointerup', up);
+        scheduleSave();
       }
       stageHandle.addEventListener('pointermove', move);
       stageHandle.addEventListener('pointerup', up);
@@ -892,6 +937,7 @@
           try{ handle.releasePointerCapture(ev.pointerId); }catch(err){}
           handle.removeEventListener('pointermove', move);
           handle.removeEventListener('pointerup', up);
+          scheduleSave();
         }
         handle.addEventListener('pointermove', move);
         handle.addEventListener('pointerup', up);
@@ -909,6 +955,7 @@
       makeInteractive(el, size, size);
       addResizeHandle(el, kind === 'circle');
       selectOnly(el);
+      scheduleSave();
     }
 
     function addText(){
@@ -927,25 +974,26 @@
         el.focus();
         document.execCommand('selectAll', false, null);
       }, 0);
+      scheduleSave();
     }
 
     function openEditModal(el){
       if(!el) return;
       if(el.classList.contains('zone')){
         var zoneLabel = el.querySelector('.zone-label');
-        openRenameModal('Modificar subtítulo de sección', zoneLabel.textContent, function(v){ zoneLabel.textContent = v; });
+        openRenameModal('Modificar subtítulo de sección', zoneLabel.textContent, function(v){ zoneLabel.textContent = v; scheduleSave(); });
         return;
       }
       if(el.classList.contains('shape')){
         if(el.classList.contains('text')){
-          openRenameModal('Modificar texto', el.textContent, function(v){ el.textContent = v; });
+          openRenameModal('Modificar texto', el.textContent, function(v){ el.textContent = v; scheduleSave(); });
         }
         return;
       }
       var labelSpan = el.querySelector('.label');
       if(!labelSpan) return;
       if(el.classList.contains('tray')){
-        openRenameModal('Modificar bandeja', labelSpan.textContent, function(v){ labelSpan.textContent = v; });
+        openRenameModal('Modificar bandeja', labelSpan.textContent, function(v){ labelSpan.textContent = v; scheduleSave(); });
         return;
       }
       openEditInstrumentModal(labelSpan.textContent, el.dataset.iconKey || 'generic', function(name, iconKey){
@@ -953,6 +1001,7 @@
         var iconHolder = el.querySelector('.icon');
         if(iconHolder) iconHolder.outerHTML = ICONS[iconKey] || ICONS.generic;
         el.dataset.iconKey = iconKey;
+        scheduleSave();
       });
     }
 
@@ -963,6 +1012,7 @@
           openAddInstrumentModal(function(name, iconKey){
             var spot = nextSpot();
             buildInstrumentEl({label:name, icon:ICONS[iconKey]||ICONS.generic, w:96, h:84, x:spot.x, y:spot.y});
+            scheduleSave();
           });
         });
       } else if(act === 'tray'){
@@ -971,6 +1021,7 @@
             var w = Math.max(110, subs.length * 50 + 20);
             var spot = nextSpot();
             buildInstrumentEl({label:name, tray:true, w:w, h:104, x:spot.x, y:spot.y, sub: subs});
+            scheduleSave();
           });
         });
       } else if(act === 'square' || act === 'circle'){
@@ -985,6 +1036,7 @@
         btn.addEventListener('click', function(){
           selectedSet.forEach(function(el){ el.remove(); });
           selectedSet.clear();
+          scheduleSave();
         });
       } else if(act === 'reset'){
         btn.addEventListener('click', function(){
@@ -996,6 +1048,7 @@
           buildZones();
           cfg.items.forEach(buildInstrumentEl);
           updateScale();
+          scheduleSave();
         });
       }
     });
@@ -1055,6 +1108,7 @@
         e.preventDefault();
         selectedSet.forEach(function(el){ el.remove(); });
         selectedSet.clear();
+        scheduleSave();
       }
       if(e.key === 'Escape') clearSelection();
     });
@@ -1066,7 +1120,89 @@
       resizeTimer = setTimeout(updateScale, 100);
     });
 
-    return { id: cfg.id, container: container, updateScale: updateScale };
+    function serialize(){
+      var data = { vw: VIRTUAL_W, vh: VIRTUAL_H, zones: [], items: [] };
+      stage.querySelectorAll(':scope > .zone').forEach(function(z){
+        var kindClass = Array.prototype.find.call(z.classList, function(c){ return c.indexOf('zone-') === 0; });
+        data.zones.push({
+          label: z.querySelector('.zone-label').textContent,
+          kind: kindClass ? kindClass.replace('zone-', '') : 'strings',
+          x: parseFloat(z.style.left) || 0, y: parseFloat(z.style.top) || 0,
+          w: parseFloat(z.dataset.w), h: parseFloat(z.dataset.h)
+        });
+      });
+      stage.querySelectorAll(':scope > .item').forEach(function(el){
+        var x = parseFloat(el.style.left) || 0, y = parseFloat(el.style.top) || 0;
+        var w = parseFloat(el.dataset.w), h = parseFloat(el.dataset.h);
+        if(el.classList.contains('shape')){
+          if(el.classList.contains('text')){
+            data.items.push({kind:'text', text: el.textContent, x:x, y:y, w:w, h:h, color: el.style.color});
+          } else {
+            data.items.push({kind: el.classList.contains('circle') ? 'circle' : 'square', x:x, y:y, w:w, h:h, color: el.style.getPropertyValue('--shape-color')});
+          }
+        } else if(el.classList.contains('tray')){
+          var subs = [];
+          el.querySelectorAll('.sub-item').forEach(function(si){
+            subs.push({iconKey: si.dataset.iconKey || 'dot', text: si.querySelector('span').textContent});
+          });
+          var sizesEl = el.querySelector('.sizes');
+          var sizes = sizesEl ? Array.prototype.map.call(sizesEl.querySelectorAll('span'), function(s){ return s.textContent; }) : null;
+          data.items.push({kind:'tray', label: el.querySelector('.label').textContent, x:x, y:y, w:w, h:h, sub:subs, sizes:sizes});
+        } else {
+          data.items.push({kind:'instrument', label: el.querySelector('.label').textContent, iconKey: el.dataset.iconKey || 'generic', x:x, y:y, w:w, h:h});
+        }
+      });
+      return data;
+    }
+
+    function loadSnapshot(data){
+      if(!data) return;
+      stage.querySelectorAll('.item, .zone').forEach(function(it){ it.remove(); });
+      selectedSet.clear(); addCount = 0;
+      VIRTUAL_W = data.vw || cfg.vw; VIRTUAL_H = data.vh || cfg.vh;
+      stage.style.width = VIRTUAL_W + 'px';
+      stage.style.height = VIRTUAL_H + 'px';
+      (data.zones || []).forEach(function(z){
+        var zoneEl = document.createElement('div');
+        zoneEl.className = 'zone zone-' + z.kind;
+        zoneEl.style.left = z.x + 'px'; zoneEl.style.top = z.y + 'px';
+        zoneEl.style.width = z.w + 'px'; zoneEl.style.height = z.h + 'px';
+        zoneEl.innerHTML = '<span class="zone-label">' + z.label + '</span>';
+        stage.appendChild(zoneEl);
+        makeInteractive(zoneEl, z.w, z.h);
+        addResizeHandle(zoneEl, false);
+        enableInlineEdit(zoneEl.querySelector('.zone-label'));
+      });
+      (data.items || []).forEach(function(it){
+        if(it.kind === 'instrument'){
+          buildInstrumentEl({label:it.label, icon:ICONS[it.iconKey]||ICONS.generic, iconKey:it.iconKey, w:it.w, h:it.h, x:it.x, y:it.y});
+        } else if(it.kind === 'tray'){
+          var subs = (it.sub || []).map(function(s){ return {icon: ICONS[s.iconKey]||ICONS.dot, iconKey:s.iconKey, text:s.text}; });
+          buildInstrumentEl({label:it.label, tray:true, w:it.w, h:it.h, x:it.x, y:it.y, sub:subs, sizes:it.sizes||undefined});
+        } else if(it.kind === 'square' || it.kind === 'circle'){
+          var el = document.createElement('div');
+          el.className = 'item shape ' + it.kind;
+          el.style.width = it.w + 'px'; el.style.height = it.h + 'px';
+          el.style.left = it.x + 'px'; el.style.top = it.y + 'px';
+          el.style.setProperty('--shape-color', it.color || '#2B4C78');
+          stage.appendChild(el);
+          makeInteractive(el, it.w, it.h);
+          addResizeHandle(el, it.kind === 'circle');
+        } else if(it.kind === 'text'){
+          var tEl = document.createElement('div');
+          tEl.className = 'item shape text';
+          tEl.style.left = it.x + 'px'; tEl.style.top = it.y + 'px';
+          tEl.style.color = it.color || '#14335C';
+          tEl.textContent = it.text;
+          stage.appendChild(tEl);
+          makeInteractive(tEl, it.w || 70, it.h || 26);
+          enableInlineEdit(tEl);
+        }
+      });
+      updateScale();
+    }
+
+    return { id: cfg.id, container: container, updateScale: updateScale, serialize: serialize, loadSnapshot: loadSnapshot };
   }
 
   //=== Assemble app ==========================================================
@@ -1117,5 +1253,140 @@
   });
 
   activate(SECTIONS[0].id);
+
+  //=== Auth + persistence ====================================================
+  var AUTH_USER = 'melvin';
+  var AUTH_HASH = '8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92';
+  var SESSION_KEY = 'planoOrquestaSession';
+  var DATA_PREFIX = 'planoOrquestaData:';
+  var GITHUB_REPO = 'melvinfranco99/planos-orquesta';
+  var currentUser = null;
+  var saveTimer = null;
+
+  function sha256Hex(str){
+    var enc = new TextEncoder().encode(str);
+    return crypto.subtle.digest('SHA-256', enc).then(function(buf){
+      return Array.prototype.map.call(new Uint8Array(buf), function(b){ return b.toString(16).padStart(2, '0'); }).join('');
+    });
+  }
+
+  function scheduleSave(){
+    if(!currentUser) return;
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(saveNow, 600);
+  }
+  function collectAllData(){
+    var data = {};
+    Object.keys(apis).forEach(function(id){ data[id] = apis[id].serialize(); });
+    return data;
+  }
+  function saveNow(){
+    if(!currentUser) return;
+    try{ localStorage.setItem(DATA_PREFIX + currentUser, JSON.stringify(collectAllData())); }catch(err){}
+  }
+  function loadUserData(){
+    try{
+      var raw = localStorage.getItem(DATA_PREFIX + currentUser);
+      if(!raw) return;
+      var data = JSON.parse(raw);
+      Object.keys(data).forEach(function(id){ if(apis[id]) apis[id].loadSnapshot(data[id]); });
+    }catch(err){}
+  }
+
+  var appRoot = document.getElementById('appRoot');
+  var loginOverlay = document.getElementById('loginOverlay');
+  var loginForm = document.getElementById('loginForm');
+  var loginUserInput = document.getElementById('loginUser');
+  var loginPassInput = document.getElementById('loginPass');
+  var loginError = document.getElementById('loginError');
+  var sessionUserLabel = document.getElementById('sessionUser');
+
+  function enterApp(username){
+    currentUser = username;
+    loginOverlay.hidden = true;
+    appRoot.hidden = false;
+    sessionUserLabel.textContent = username;
+    loginError.hidden = true;
+    loadUserData();
+    apis[Object.keys(apis).filter(function(id){ return apis[id].container.classList.contains('active'); })[0] || SECTIONS[0].id].updateScale();
+  }
+
+  loginForm.addEventListener('submit', function(e){
+    e.preventDefault();
+    var u = loginUserInput.value.trim();
+    var p = loginPassInput.value;
+    sha256Hex(p).then(function(hash){
+      if(u === AUTH_USER && hash === AUTH_HASH){
+        try{ localStorage.setItem(SESSION_KEY, u); }catch(err){}
+        loginPassInput.value = '';
+        enterApp(u);
+      } else {
+        loginError.hidden = false;
+      }
+    });
+  });
+
+  document.getElementById('logoutBtn').addEventListener('click', function(){
+    try{ localStorage.removeItem(SESSION_KEY); }catch(err){}
+    currentUser = null;
+    appRoot.hidden = true;
+    loginOverlay.hidden = false;
+    loginPassInput.value = '';
+    loginUserInput.focus();
+  });
+
+  document.getElementById('exportBtn').addEventListener('click', function(){
+    var blob = new Blob([JSON.stringify(collectAllData(), null, 2)], {type:'application/json'});
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url; a.download = 'plano-orquesta-' + (currentUser || 'copia') + '.json';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
+  });
+
+  document.getElementById('importFile').addEventListener('change', function(e){
+    var file = e.target.files[0];
+    if(!file) return;
+    var reader = new FileReader();
+    reader.onload = function(){
+      try{
+        var data = JSON.parse(reader.result);
+        Object.keys(data).forEach(function(id){ if(apis[id]) apis[id].loadSnapshot(data[id]); });
+        scheduleSave();
+        alert('Composición importada correctamente.');
+      }catch(err){
+        alert('No se pudo leer el archivo. Asegúrate de que es una copia exportada desde esta misma herramienta.');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  });
+
+  document.getElementById('githubSaveBtn').addEventListener('click', function(){
+    var json = JSON.stringify(collectAllData(), null, 2);
+    var filename = 'composiciones/plano-' + (currentUser || 'usuario') + '.json';
+    var url = 'https://github.com/' + GITHUB_REPO + '/new/master?filename=' + encodeURIComponent(filename);
+    function openIt(){ window.open(url, '_blank'); }
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(json).then(function(){
+        alert('Composición copiada al portapapeles. Se abrirá GitHub: pega el contenido (Ctrl+V) en el editor y confirma el commit.');
+        openIt();
+      }, function(){
+        alert('No se pudo copiar automáticamente. Usa "Exportar" para descargar el archivo y súbelo a GitHub manualmente.');
+        openIt();
+      });
+    } else {
+      alert('Tu navegador no permite copiar automáticamente. Usa "Exportar" para descargar el archivo y súbelo a GitHub manualmente.');
+      openIt();
+    }
+  });
+
+  var savedSession = null;
+  try{ savedSession = localStorage.getItem(SESSION_KEY); }catch(err){}
+  if(savedSession === AUTH_USER){
+    enterApp(savedSession);
+  } else {
+    setTimeout(function(){ loginUserInput.focus(); }, 0);
+  }
 })();
 </script>
