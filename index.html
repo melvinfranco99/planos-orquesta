@@ -1,3 +1,4 @@
+<meta charset="UTF-8">
 <title>Planos de Escenario — Orquesta y Banda Sinfónica</title>
 <style>
   :root{
@@ -84,6 +85,8 @@
   .login-box input{padding:9px 11px;border-radius:5px;border:1.5px solid var(--border);background:var(--bg-page);color:var(--ink);font:inherit;font-size:13px;}
   .login-box .login-error{color:var(--danger);font-size:12px;margin:10px 0 0;}
   .login-box .btn.primary{margin-top:18px;justify-content:center;}
+  .login-box .login-toggle{margin-top:8px;justify-content:center;border-color:transparent;background:transparent;color:var(--ink-dim);text-transform:none;letter-spacing:0;font-weight:600;font-size:12.5px;}
+  .login-box .login-toggle:hover{color:var(--accent-ink);border-color:transparent;background:transparent;}
 
   .tabs-wrap{display:flex;flex-direction:column;gap:6px;}
   .tab-group{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
@@ -237,14 +240,17 @@
 
 <div class="login-overlay" id="loginOverlay">
   <form class="login-box" id="loginForm">
-    <h2>Iniciar sesión</h2>
+    <h2 id="authTitle">Iniciar sesión</h2>
     <p class="login-sub">Planos de Escenario — Orquesta y Banda Sinfónica</p>
     <label for="loginUser">Usuario</label>
     <input type="text" id="loginUser" autocomplete="username" required>
     <label for="loginPass">Contraseña</label>
     <input type="password" id="loginPass" autocomplete="current-password" required>
-    <p class="login-error" id="loginError" hidden>Usuario o contraseña incorrectos.</p>
-    <button class="btn primary" type="submit">Entrar</button>
+    <label for="loginPass2" id="loginPass2Label" hidden>Confirmar contraseña</label>
+    <input type="password" id="loginPass2" autocomplete="new-password" hidden>
+    <p class="login-error" id="loginError" hidden></p>
+    <button class="btn primary" type="submit" id="authSubmitBtn">Entrar</button>
+    <button class="btn login-toggle" type="button" id="authToggleBtn">¿No tienes cuenta? Regístrate</button>
   </form>
 </div>
 
@@ -1255,19 +1261,66 @@
   activate(SECTIONS[0].id);
 
   //=== Auth + persistence ====================================================
-  var AUTH_USER = 'melvin';
-  var AUTH_HASH = '8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92';
+  var DEFAULT_USERS = { melvin: '8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92' };
   var SESSION_KEY = 'planoOrquestaSession';
   var DATA_PREFIX = 'planoOrquestaData:';
+  var PENDING_USERS_KEY = 'planoOrquestaPendingUsers';
   var GITHUB_REPO = 'melvinfranco99/planos-orquesta';
   var currentUser = null;
   var saveTimer = null;
+  var remoteUsers = null;
+  var usersFileExists = false;
+  var pendingUsers = {};
+  try{ pendingUsers = JSON.parse(localStorage.getItem(PENDING_USERS_KEY) || '{}'); }catch(err){ pendingUsers = {}; }
 
   function sha256Hex(str){
     var enc = new TextEncoder().encode(str);
     return crypto.subtle.digest('SHA-256', enc).then(function(buf){
       return Array.prototype.map.call(new Uint8Array(buf), function(b){ return b.toString(16).padStart(2, '0'); }).join('');
     });
+  }
+
+  // Combines the user list committed to the repo (users.json) with anyone
+  // who has registered on this device but whose account hasn't been pushed
+  // to GitHub yet, so a fresh registration can log in immediately.
+  function getUserDirectory(){
+    var merged = {};
+    Object.keys(remoteUsers || DEFAULT_USERS).forEach(function(k){ merged[k.toLowerCase()] = (remoteUsers || DEFAULT_USERS)[k]; });
+    Object.keys(pendingUsers).forEach(function(k){ merged[k.toLowerCase()] = pendingUsers[k]; });
+    return merged;
+  }
+
+  var usersReady = fetch('users.json', {cache:'no-store'}).then(function(r){
+    if(!r.ok) throw new Error('missing users.json');
+    return r.json();
+  }).then(function(json){
+    remoteUsers = json;
+    usersFileExists = true;
+  }).catch(function(){
+    remoteUsers = null;
+    usersFileExists = false;
+  });
+
+  // Copies a JSON payload to the clipboard and opens GitHub's file editor
+  // (create or edit, depending on whether the file already exists) so the
+  // user can commit it with their own GitHub session — no token involved.
+  function copyAndOpenGitHub(json, filename, fileExists, context){
+    var url = fileExists
+      ? 'https://github.com/' + GITHUB_REPO + '/edit/master/' + filename
+      : 'https://github.com/' + GITHUB_REPO + '/new/master?filename=' + encodeURIComponent(filename);
+    function openIt(){ window.open(url, '_blank'); }
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(json).then(function(){
+        alert(context + ' Se ha copiado al portapapeles: se abrirá GitHub, pega el contenido (Ctrl+V) reemplazando lo que haya y confirma el commit.');
+        openIt();
+      }, function(){
+        alert('No se pudo copiar automáticamente. Copia el contenido manualmente desde "Exportar" y súbelo a GitHub como ' + filename + '.');
+        openIt();
+      });
+    } else {
+      alert('Tu navegador no permite copiar automáticamente. Copia el contenido manualmente desde "Exportar" y súbelo a GitHub como ' + filename + '.');
+      openIt();
+    }
   }
 
   function scheduleSave(){
@@ -1298,11 +1351,40 @@
   var loginForm = document.getElementById('loginForm');
   var loginUserInput = document.getElementById('loginUser');
   var loginPassInput = document.getElementById('loginPass');
+  var loginPass2Input = document.getElementById('loginPass2');
+  var loginPass2Label = document.getElementById('loginPass2Label');
   var loginError = document.getElementById('loginError');
   var sessionUserLabel = document.getElementById('sessionUser');
+  var authTitle = document.getElementById('authTitle');
+  var authSubmitBtn = document.getElementById('authSubmitBtn');
+  var authToggleBtn = document.getElementById('authToggleBtn');
+  var authMode = 'login';
+
+  function showAuthError(msg){ loginError.textContent = msg; loginError.hidden = false; }
+
+  function setAuthMode(mode){
+    authMode = mode;
+    loginError.hidden = true;
+    if(mode === 'register'){
+      authTitle.textContent = 'Crear cuenta';
+      authSubmitBtn.textContent = 'Crear cuenta';
+      authToggleBtn.textContent = '¿Ya tienes cuenta? Inicia sesión';
+      loginPass2Label.hidden = false; loginPass2Input.hidden = false;
+      loginPass2Input.required = true;
+      loginPassInput.autocomplete = 'new-password';
+    } else {
+      authTitle.textContent = 'Iniciar sesión';
+      authSubmitBtn.textContent = 'Entrar';
+      authToggleBtn.textContent = '¿No tienes cuenta? Regístrate';
+      loginPass2Label.hidden = true; loginPass2Input.hidden = true;
+      loginPass2Input.required = false; loginPass2Input.value = '';
+      loginPassInput.autocomplete = 'current-password';
+    }
+  }
+  authToggleBtn.addEventListener('click', function(){ setAuthMode(authMode === 'login' ? 'register' : 'login'); });
 
   function enterApp(username){
-    currentUser = username;
+    currentUser = username.toLowerCase();
     loginOverlay.hidden = true;
     appRoot.hidden = false;
     sessionUserLabel.textContent = username;
@@ -1311,18 +1393,49 @@
     apis[Object.keys(apis).filter(function(id){ return apis[id].container.classList.contains('active'); })[0] || SECTIONS[0].id].updateScale();
   }
 
+  function doLogin(u, p){
+    sha256Hex(p).then(function(hash){
+      var dir = getUserDirectory();
+      var key = u.toLowerCase();
+      if(dir[key] && dir[key] === hash){
+        try{ localStorage.setItem(SESSION_KEY, key); }catch(err){}
+        loginPassInput.value = '';
+        enterApp(u);
+      } else {
+        showAuthError('Usuario o contraseña incorrectos.');
+      }
+    });
+  }
+
+  function doRegister(u, p, p2){
+    if(u.length < 3){ showAuthError('El usuario debe tener al menos 3 caracteres.'); return; }
+    if(!/^[a-zA-Z0-9_.-]+$/.test(u)){ showAuthError('Usa solo letras, números, guiones, puntos o guiones bajos en el usuario.'); return; }
+    if(p.length < 4){ showAuthError('La contraseña debe tener al menos 4 caracteres.'); return; }
+    if(p !== p2){ showAuthError('Las contraseñas no coinciden.'); return; }
+    var dir = getUserDirectory();
+    if(dir[u.toLowerCase()]){ showAuthError('Ese usuario ya existe. Inicia sesión o elige otro nombre.'); return; }
+    sha256Hex(p).then(function(hash){
+      var key = u.toLowerCase();
+      pendingUsers[key] = hash;
+      try{ localStorage.setItem(PENDING_USERS_KEY, JSON.stringify(pendingUsers)); }catch(err){}
+      try{ localStorage.setItem(SESSION_KEY, key); }catch(err){}
+      loginPassInput.value = ''; loginPass2Input.value = '';
+      enterApp(u);
+      copyAndOpenGitHub(
+        JSON.stringify(getUserDirectory(), null, 2), 'users.json', usersFileExists,
+        'Cuenta creada en este dispositivo. Para poder entrar también desde otros equipos, guarda la lista de usuarios actualizada en el repositorio.'
+      );
+    });
+  }
+
   loginForm.addEventListener('submit', function(e){
     e.preventDefault();
     var u = loginUserInput.value.trim();
     var p = loginPassInput.value;
-    sha256Hex(p).then(function(hash){
-      if(u === AUTH_USER && hash === AUTH_HASH){
-        try{ localStorage.setItem(SESSION_KEY, u); }catch(err){}
-        loginPassInput.value = '';
-        enterApp(u);
-      } else {
-        loginError.hidden = false;
-      }
+    var p2 = loginPass2Input.value;
+    usersReady.then(function(){
+      if(authMode === 'register') doRegister(u, p, p2);
+      else doLogin(u, p);
     });
   });
 
@@ -1332,6 +1445,7 @@
     appRoot.hidden = true;
     loginOverlay.hidden = false;
     loginPassInput.value = '';
+    setAuthMode('login');
     loginUserInput.focus();
   });
 
@@ -1365,26 +1479,16 @@
   document.getElementById('githubSaveBtn').addEventListener('click', function(){
     var json = JSON.stringify(collectAllData(), null, 2);
     var filename = 'composiciones/plano-' + (currentUser || 'usuario') + '.json';
-    var url = 'https://github.com/' + GITHUB_REPO + '/new/master?filename=' + encodeURIComponent(filename);
-    function openIt(){ window.open(url, '_blank'); }
-    if(navigator.clipboard && navigator.clipboard.writeText){
-      navigator.clipboard.writeText(json).then(function(){
-        alert('Composición copiada al portapapeles. Se abrirá GitHub: pega el contenido (Ctrl+V) en el editor y confirma el commit.');
-        openIt();
-      }, function(){
-        alert('No se pudo copiar automáticamente. Usa "Exportar" para descargar el archivo y súbelo a GitHub manualmente.');
-        openIt();
-      });
-    } else {
-      alert('Tu navegador no permite copiar automáticamente. Usa "Exportar" para descargar el archivo y súbelo a GitHub manualmente.');
-      openIt();
-    }
+    copyAndOpenGitHub(json, filename, false, 'Composición lista para guardar.');
   });
 
   var savedSession = null;
   try{ savedSession = localStorage.getItem(SESSION_KEY); }catch(err){}
-  if(savedSession === AUTH_USER){
-    enterApp(savedSession);
+  if(savedSession){
+    usersReady.then(function(){
+      if(getUserDirectory()[savedSession]) enterApp(savedSession);
+      else setTimeout(function(){ loginUserInput.focus(); }, 0);
+    });
   } else {
     setTimeout(function(){ loginUserInput.focus(); }, 0);
   }
