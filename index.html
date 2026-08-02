@@ -710,6 +710,7 @@
     function enableInlineEdit(target){
       target.addEventListener('dblclick', function(e){
         e.stopPropagation();
+        pushHistory();
         target.setAttribute('contenteditable', 'true');
         target.focus();
         var range = document.createRange();
@@ -736,24 +737,25 @@
       var THRESH = 4;
       var startClientX, startClientY, dragging = false, moved = false, members = null;
 
-      var shiftAtDown = false;
+      var modAtDown = false;
 
       el.addEventListener('pointerdown', function(e){
         if(e.target.closest('.resize-handle')) return;
         if(el.getAttribute('contenteditable') === 'true') return;
         e.stopPropagation();
         startClientX = e.clientX; startClientY = e.clientY;
-        shiftAtDown = e.shiftKey;
+        modAtDown = e.shiftKey || e.ctrlKey || e.metaKey;
         dragging = true; moved = false; members = null;
         try{ el.setPointerCapture(e.pointerId); }catch(err){}
       });
       el.addEventListener('pointermove', function(e){
         if(!dragging) return;
+        if(modAtDown) return; // Shift/Ctrl held: this pointer only ever toggles selection, never moves anything
         var dxC = e.clientX - startClientX, dyC = e.clientY - startClientY;
         if(!moved){
           if(Math.abs(dxC) < THRESH && Math.abs(dyC) < THRESH) return;
           moved = true;
-          if(shiftAtDown) return;
+          pushHistory();
           el.classList.add('dragging');
           if(!(selectedSet.has(el) && selectedSet.size > 1)) selectOnly(el);
           members = Array.from(selectedSet.size > 1 ? selectedSet : [el]).map(function(m){
@@ -761,7 +763,7 @@
                      w:parseFloat(m.dataset.w), h:parseFloat(m.dataset.h) };
           });
         }
-        if(shiftAtDown || !members) return;
+        if(!members) return;
         var f = scaleFactor();
         var dxV = dxC / f, dyV = dyC / f;
         members.forEach(function(mem){
@@ -776,9 +778,10 @@
         dragging = false;
         el.classList.remove('dragging');
         try{ el.releasePointerCapture(e.pointerId); }catch(err){}
-        if(!moved){
-          if(shiftAtDown) toggleInSelection(el);
-          else selectOnly(el);
+        if(modAtDown){
+          toggleInSelection(el);
+        } else if(!moved){
+          selectOnly(el);
         } else {
           scheduleSave();
         }
@@ -799,6 +802,7 @@
         else moved = false;
         if(moved){
           e.preventDefault();
+          pushHistory();
           var w2 = parseFloat(el.dataset.w), h2 = parseFloat(el.dataset.h);
           el.style.left = clamp(cur.left, 0, VIRTUAL_W - w2) + 'px';
           el.style.top = clamp(cur.top, 0, VIRTUAL_H - h2) + 'px';
@@ -865,6 +869,7 @@
     stage.appendChild(stageHandle);
     stageHandle.addEventListener('pointerdown', function(e){
       e.stopPropagation();
+      pushHistory();
       try{ stageHandle.setPointerCapture(e.pointerId); }catch(err){}
       var startX = e.clientX, startY = e.clientY;
       var startW = VIRTUAL_W, startH = VIRTUAL_H;
@@ -892,6 +897,7 @@
       el.appendChild(handle);
       handle.addEventListener('pointerdown', function(e){
         e.stopPropagation();
+        pushHistory();
         selectOnly(el);
         try{ handle.setPointerCapture(e.pointerId); }catch(err){}
         var startX = e.clientX, startY = e.clientY;
@@ -916,6 +922,7 @@
     }
 
     function addShape(kind){
+      pushHistory();
       var spot = nextSpot(), size = 90;
       var el = document.createElement('div');
       el.className = 'item shape ' + kind;
@@ -930,6 +937,7 @@
     }
 
     function addText(){
+      pushHistory();
       var spot = nextSpot();
       var el = document.createElement('div');
       el.className = 'item shape text';
@@ -952,22 +960,23 @@
       if(!el) return;
       if(el.classList.contains('zone')){
         var zoneLabel = el.querySelector('.zone-label');
-        openRenameModal('Modificar subtítulo de sección', zoneLabel.textContent, function(v){ zoneLabel.textContent = v; scheduleSave(); });
+        openRenameModal('Modificar subtítulo de sección', zoneLabel.textContent, function(v){ pushHistory(); zoneLabel.textContent = v; scheduleSave(); });
         return;
       }
       if(el.classList.contains('shape')){
         if(el.classList.contains('text')){
-          openRenameModal('Modificar texto', el.textContent, function(v){ el.textContent = v; scheduleSave(); });
+          openRenameModal('Modificar texto', el.textContent, function(v){ pushHistory(); el.textContent = v; scheduleSave(); });
         }
         return;
       }
       var labelSpan = el.querySelector('.label');
       if(!labelSpan) return;
       if(el.classList.contains('tray')){
-        openRenameModal('Modificar bandeja', labelSpan.textContent, function(v){ labelSpan.textContent = v; scheduleSave(); });
+        openRenameModal('Modificar bandeja', labelSpan.textContent, function(v){ pushHistory(); labelSpan.textContent = v; scheduleSave(); });
         return;
       }
       openEditInstrumentModal(labelSpan.textContent, el.dataset.iconKey || 'generic', function(name, iconKey){
+        pushHistory();
         labelSpan.textContent = name;
         var iconHolder = el.querySelector('.icon');
         if(iconHolder) iconHolder.outerHTML = ICONS[iconKey] || ICONS.generic;
@@ -981,6 +990,7 @@
       if(act === 'instrument'){
         btn.addEventListener('click', function(){
           openAddInstrumentModal(function(name, iconKey){
+            pushHistory();
             var spot = nextSpot();
             buildInstrumentEl({label:name, icon:ICONS[iconKey]||ICONS.generic, w:96, h:84, x:spot.x, y:spot.y});
             scheduleSave();
@@ -989,6 +999,7 @@
       } else if(act === 'tray'){
         btn.addEventListener('click', function(){
           openAddTrayModal(function(name, subs){
+            pushHistory();
             var w = Math.max(110, subs.length * 50 + 20);
             var spot = nextSpot();
             buildInstrumentEl({label:name, tray:true, w:w, h:104, x:spot.x, y:spot.y, sub: subs});
@@ -1005,12 +1016,14 @@
         });
       } else if(act === 'delete'){
         btn.addEventListener('click', function(){
+          pushHistory();
           selectedSet.forEach(function(el){ el.remove(); });
           selectedSet.clear();
           scheduleSave();
         });
       } else if(act === 'reset'){
         btn.addEventListener('click', function(){
+          pushHistory();
           stage.querySelectorAll('.item, .zone').forEach(function(it){ it.remove(); });
           addCount = 0; selectedSet.clear();
           VIRTUAL_W = cfg.vw; VIRTUAL_H = cfg.vh;
@@ -1029,7 +1042,7 @@
       var stageRect = stage.getBoundingClientRect();
       var f = scaleFactor();
       var startX = (e.clientX - stageRect.left) / f, startY = (e.clientY - stageRect.top) / f;
-      var shiftHeld = e.shiftKey;
+      var shiftHeld = e.shiftKey || e.ctrlKey || e.metaKey;
 
       var band = document.createElement('div');
       band.className = 'rubber-band';
@@ -1077,6 +1090,7 @@
       if(document.activeElement && document.activeElement.getAttribute && document.activeElement.getAttribute('contenteditable') === 'true') return;
       if((e.key === 'Delete' || e.key === 'Backspace') && selectedSet.size){
         e.preventDefault();
+        pushHistory();
         selectedSet.forEach(function(el){ el.remove(); });
         selectedSet.clear();
         scheduleSave();
@@ -1250,6 +1264,48 @@
     }catch(err){}
   }
 
+  //=== Undo / redo (global, across every section) ============================
+  var undoStack = [], redoStack = [];
+  var MAX_HISTORY = 60;
+  var isRestoring = false;
+
+  // Call right BEFORE any mutation (move, add, delete, rename, resize, recolor,
+  // import…) so the stack always holds the state to go back to.
+  function pushHistory(){
+    if(isRestoring) return;
+    undoStack.push(JSON.stringify(collectAllData()));
+    if(undoStack.length > MAX_HISTORY) undoStack.shift();
+    redoStack.length = 0;
+  }
+  function applyData(dataStr){
+    isRestoring = true;
+    var data = JSON.parse(dataStr);
+    Object.keys(apis).forEach(function(id){ if(apis[id]) apis[id].loadSnapshot(data[id]); });
+    isRestoring = false;
+  }
+  function undo(){
+    if(!undoStack.length) return;
+    var prev = undoStack.pop();
+    redoStack.push(JSON.stringify(collectAllData()));
+    applyData(prev);
+    scheduleSave();
+  }
+  function redo(){
+    if(!redoStack.length) return;
+    var next = redoStack.pop();
+    undoStack.push(JSON.stringify(collectAllData()));
+    applyData(next);
+    scheduleSave();
+  }
+
+  document.addEventListener('keydown', function(e){
+    if(!e.ctrlKey && !e.metaKey) return;
+    if(document.activeElement && document.activeElement.getAttribute && document.activeElement.getAttribute('contenteditable') === 'true') return;
+    var key = e.key.toLowerCase();
+    if(key === 'z'){ e.preventDefault(); undo(); }
+    else if(key === 'y'){ e.preventDefault(); redo(); }
+  });
+
   document.getElementById('exportBtn').addEventListener('click', function(){
     var blob = new Blob([JSON.stringify(collectAllData(), null, 2)], {type:'application/json'});
     var url = URL.createObjectURL(blob);
@@ -1266,6 +1322,7 @@
     reader.onload = function(){
       try{
         var data = JSON.parse(reader.result);
+        pushHistory();
         Object.keys(data).forEach(function(id){ if(apis[id]) apis[id].loadSnapshot(data[id]); });
         scheduleSave();
         alert('Composición importada correctamente.');
