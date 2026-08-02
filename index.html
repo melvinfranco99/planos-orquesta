@@ -175,6 +175,14 @@
 
   .resize-handle{position:absolute;right:-5px;bottom:-5px;width:12px;height:12px;border-radius:3px;background:var(--accent);border:1.5px solid var(--bg-stage);cursor:nwse-resize;touch-action:none;z-index:30;}
 
+  .rotate-stem{position:absolute;top:-14px;left:50%;width:1.5px;height:14px;background:var(--accent);transform:translateX(-50%);pointer-events:none;z-index:29;}
+  .rotate-handle{
+    position:absolute;top:-27px;left:50%;transform:translateX(-50%);width:13px;height:13px;border-radius:50%;
+    background:var(--bg-stage);border:2px solid var(--accent);cursor:grab;touch-action:none;z-index:31;
+  }
+  .rotate-handle:active{cursor:grabbing;}
+  .rotate-handle:hover{background:var(--accent);}
+
   .stage-resize-handle{
     position:absolute;right:0;bottom:0;width:28px;height:28px;cursor:nwse-resize;touch-action:none;z-index:40;
     background:linear-gradient(135deg, transparent 50%, var(--accent) 50%);opacity:.5;border-radius:0 0 10px 0;
@@ -740,7 +748,7 @@
       var modAtDown = false;
 
       el.addEventListener('pointerdown', function(e){
-        if(e.target.closest('.resize-handle')) return;
+        if(e.target.closest('.resize-handle') || e.target.closest('.rotate-handle')) return;
         if(el.getAttribute('contenteditable') === 'true') return;
         e.stopPropagation();
         startClientX = e.clientX; startClientY = e.clientY;
@@ -840,6 +848,8 @@
       stage.appendChild(el);
       makeInteractive(el, def.w, def.h);
       enableInlineEdit(el.querySelector('.label'));
+      addRotateHandle(el);
+      if(def.rotation){ el.dataset.rotation = def.rotation; el.style.transform = 'rotate(' + def.rotation + 'deg)'; }
       return el;
     }
 
@@ -856,6 +866,7 @@
         stage.appendChild(zoneEl);
         makeInteractive(zoneEl, z.box.w, z.box.h);
         addResizeHandle(zoneEl, false);
+        addRotateHandle(zoneEl);
         enableInlineEdit(zoneEl.querySelector('.zone-label'));
       });
     }
@@ -921,6 +932,53 @@
       });
     }
 
+    // Small handle above each object (stem + knob) that lets it be freely
+    // rotated around its own center; hold Shift while dragging to snap to
+    // 15° steps, double-click to reset to 0°.
+    function addRotateHandle(el){
+      var stem = document.createElement('div');
+      stem.className = 'rotate-stem';
+      el.appendChild(stem);
+      var handle = document.createElement('div');
+      handle.className = 'rotate-handle';
+      handle.title = 'Arrastra para girar (Mayús = pasos de 15°, doble clic = restablecer)';
+      el.appendChild(handle);
+
+      handle.addEventListener('dblclick', function(e){
+        e.stopPropagation();
+        pushHistory();
+        el.dataset.rotation = 0;
+        el.style.transform = '';
+        scheduleSave();
+      });
+
+      handle.addEventListener('pointerdown', function(e){
+        e.stopPropagation();
+        pushHistory();
+        selectOnly(el);
+        try{ handle.setPointerCapture(e.pointerId); }catch(err){}
+        var startRotation = parseFloat(el.dataset.rotation) || 0;
+        var r = el.getBoundingClientRect();
+        var cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+        function angleAt(clientX, clientY){ return Math.atan2(clientY - cy, clientX - cx) * 180 / Math.PI; }
+        var startAngle = angleAt(e.clientX, e.clientY);
+        function move(ev){
+          var newRot = startRotation + (angleAt(ev.clientX, ev.clientY) - startAngle);
+          newRot = ev.shiftKey ? Math.round(newRot / 15) * 15 : Math.round(newRot);
+          el.dataset.rotation = newRot;
+          el.style.transform = 'rotate(' + newRot + 'deg)';
+        }
+        function up(ev){
+          try{ handle.releasePointerCapture(ev.pointerId); }catch(err){}
+          handle.removeEventListener('pointermove', move);
+          handle.removeEventListener('pointerup', up);
+          scheduleSave();
+        }
+        handle.addEventListener('pointermove', move);
+        handle.addEventListener('pointerup', up);
+      });
+    }
+
     function addShape(kind){
       pushHistory();
       var spot = nextSpot(), size = 90;
@@ -932,6 +990,7 @@
       stage.appendChild(el);
       makeInteractive(el, size, size);
       addResizeHandle(el, kind === 'circle');
+      addRotateHandle(el);
       selectOnly(el);
       scheduleSave();
     }
@@ -947,6 +1006,7 @@
       stage.appendChild(el);
       makeInteractive(el, 70, 26);
       enableInlineEdit(el);
+      addRotateHandle(el);
       selectOnly(el);
       setTimeout(function(){
         el.setAttribute('contenteditable', 'true');
@@ -1113,17 +1173,19 @@
           label: z.querySelector('.zone-label').textContent,
           kind: kindClass ? kindClass.replace('zone-', '') : 'strings',
           x: parseFloat(z.style.left) || 0, y: parseFloat(z.style.top) || 0,
-          w: parseFloat(z.dataset.w), h: parseFloat(z.dataset.h)
+          w: parseFloat(z.dataset.w), h: parseFloat(z.dataset.h),
+          rotation: parseFloat(z.dataset.rotation) || 0
         });
       });
       stage.querySelectorAll(':scope > .item').forEach(function(el){
         var x = parseFloat(el.style.left) || 0, y = parseFloat(el.style.top) || 0;
         var w = parseFloat(el.dataset.w), h = parseFloat(el.dataset.h);
+        var rotation = parseFloat(el.dataset.rotation) || 0;
         if(el.classList.contains('shape')){
           if(el.classList.contains('text')){
-            data.items.push({kind:'text', text: el.textContent, x:x, y:y, w:w, h:h, color: el.style.color});
+            data.items.push({kind:'text', text: el.textContent, x:x, y:y, w:w, h:h, color: el.style.color, rotation:rotation});
           } else {
-            data.items.push({kind: el.classList.contains('circle') ? 'circle' : 'square', x:x, y:y, w:w, h:h, color: el.style.getPropertyValue('--shape-color')});
+            data.items.push({kind: el.classList.contains('circle') ? 'circle' : 'square', x:x, y:y, w:w, h:h, color: el.style.getPropertyValue('--shape-color'), rotation:rotation});
           }
         } else if(el.classList.contains('tray')){
           var subs = [];
@@ -1132,9 +1194,9 @@
           });
           var sizesEl = el.querySelector('.sizes');
           var sizes = sizesEl ? Array.prototype.map.call(sizesEl.querySelectorAll('span'), function(s){ return s.textContent; }) : null;
-          data.items.push({kind:'tray', label: el.querySelector('.label').textContent, x:x, y:y, w:w, h:h, sub:subs, sizes:sizes});
+          data.items.push({kind:'tray', label: el.querySelector('.label').textContent, x:x, y:y, w:w, h:h, sub:subs, sizes:sizes, rotation:rotation});
         } else {
-          data.items.push({kind:'instrument', label: el.querySelector('.label').textContent, iconKey: el.dataset.iconKey || 'generic', x:x, y:y, w:w, h:h});
+          data.items.push({kind:'instrument', label: el.querySelector('.label').textContent, iconKey: el.dataset.iconKey || 'generic', x:x, y:y, w:w, h:h, rotation:rotation});
         }
       });
       return data;
@@ -1156,14 +1218,16 @@
         stage.appendChild(zoneEl);
         makeInteractive(zoneEl, z.w, z.h);
         addResizeHandle(zoneEl, false);
+        addRotateHandle(zoneEl);
+        if(z.rotation){ zoneEl.dataset.rotation = z.rotation; zoneEl.style.transform = 'rotate(' + z.rotation + 'deg)'; }
         enableInlineEdit(zoneEl.querySelector('.zone-label'));
       });
       (data.items || []).forEach(function(it){
         if(it.kind === 'instrument'){
-          buildInstrumentEl({label:it.label, icon:ICONS[it.iconKey]||ICONS.generic, iconKey:it.iconKey, w:it.w, h:it.h, x:it.x, y:it.y});
+          buildInstrumentEl({label:it.label, icon:ICONS[it.iconKey]||ICONS.generic, iconKey:it.iconKey, w:it.w, h:it.h, x:it.x, y:it.y, rotation:it.rotation});
         } else if(it.kind === 'tray'){
           var subs = (it.sub || []).map(function(s){ return {icon: ICONS[s.iconKey]||ICONS.dot, iconKey:s.iconKey, text:s.text}; });
-          buildInstrumentEl({label:it.label, tray:true, w:it.w, h:it.h, x:it.x, y:it.y, sub:subs, sizes:it.sizes||undefined});
+          buildInstrumentEl({label:it.label, tray:true, w:it.w, h:it.h, x:it.x, y:it.y, sub:subs, sizes:it.sizes||undefined, rotation:it.rotation});
         } else if(it.kind === 'square' || it.kind === 'circle'){
           var el = document.createElement('div');
           el.className = 'item shape ' + it.kind;
@@ -1173,6 +1237,8 @@
           stage.appendChild(el);
           makeInteractive(el, it.w, it.h);
           addResizeHandle(el, it.kind === 'circle');
+          addRotateHandle(el);
+          if(it.rotation){ el.dataset.rotation = it.rotation; el.style.transform = 'rotate(' + it.rotation + 'deg)'; }
         } else if(it.kind === 'text'){
           var tEl = document.createElement('div');
           tEl.className = 'item shape text';
@@ -1182,6 +1248,8 @@
           stage.appendChild(tEl);
           makeInteractive(tEl, it.w || 70, it.h || 26);
           enableInlineEdit(tEl);
+          addRotateHandle(tEl);
+          if(it.rotation){ tEl.dataset.rotation = it.rotation; tEl.style.transform = 'rotate(' + it.rotation + 'deg)'; }
         }
       });
       updateScale();
