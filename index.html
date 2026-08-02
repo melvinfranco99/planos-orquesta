@@ -581,7 +581,7 @@
   function openAddInstrumentModal(onCreate){
     var body = document.createElement('div');
     var label1 = document.createElement('label'); label1.textContent = 'Nombre del instrumento';
-    var nameInput = document.createElement('input'); nameInput.type = 'text'; nameInput.placeholder = 'p. ej. Fliscorno';
+    var nameInput = document.createElement('input'); nameInput.type = 'text'; nameInput.value = 'Instrumento'; nameInput.placeholder = 'p. ej. Fliscorno';
     body.appendChild(label1); body.appendChild(nameInput);
     var label2 = document.createElement('label'); label2.textContent = 'Icono';
     body.appendChild(label2);
@@ -589,11 +589,10 @@
     body.appendChild(grid.el);
 
     openModal('Añadir instrumento', body, function(){
-      var name = nameInput.value.trim();
-      if(!name){ nameInput.focus(); return false; }
+      var name = nameInput.value.trim() || 'Instrumento';
       onCreate(name, grid.getKey());
     });
-    setTimeout(function(){ nameInput.focus(); }, 0);
+    setTimeout(function(){ nameInput.focus(); nameInput.select(); }, 0);
   }
 
   function openAddTrayModal(onCreate){
@@ -849,10 +848,13 @@
       });
     }
 
+    // Places newly added objects near the top-left of the canvas — right
+    // below the "Público" label — so they always land in view even on tall
+    // stages, instead of appending far off-screen at the bottom.
     function nextSpot(){
-      var col = addCount % 8, row = Math.floor(addCount / 8);
+      var col = addCount % 6, row = Math.floor(addCount / 6) % 5;
       addCount++;
-      return { x: clamp(30 + col * 130, 0, VIRTUAL_W - 100), y: clamp(VIRTUAL_H - 150 + row * 40, 0, VIRTUAL_H - 90) };
+      return { x: clamp(40 + col * 130, 0, VIRTUAL_W - 100), y: clamp(90 + row * 100, 0, VIRTUAL_H - 90) };
     }
 
     function buildInstrumentEl(def){
@@ -1009,6 +1011,13 @@
       });
     }
 
+    // Belt-and-suspenders: whatever nextSpot() picked, make sure the new
+    // object actually scrolls into the visible area instead of landing
+    // silently off-screen on a tall stage.
+    function scrollToItem(el){
+      try{ el.scrollIntoView({block:'nearest', inline:'nearest'}); }catch(err){}
+    }
+
     function addShape(kind){
       pushHistory();
       var spot = nextSpot(), size = 90;
@@ -1022,6 +1031,7 @@
       addResizeHandle(el, kind === 'circle');
       addRotateHandle(el);
       selectOnly(el);
+      scrollToItem(el);
       scheduleSave();
     }
 
@@ -1038,6 +1048,7 @@
       enableInlineEdit(el);
       addRotateHandle(el);
       selectOnly(el);
+      scrollToItem(el);
       setTimeout(function(){
         el.setAttribute('contenteditable', 'true');
         el.focus();
@@ -1082,7 +1093,9 @@
           openAddInstrumentModal(function(name, iconKey){
             pushHistory();
             var spot = nextSpot();
-            buildInstrumentEl({label:name, icon:ICONS[iconKey]||ICONS.generic, w:96, h:84, x:spot.x, y:spot.y});
+            var el = buildInstrumentEl({label:name, icon:ICONS[iconKey]||ICONS.generic, w:96, h:84, x:spot.x, y:spot.y});
+            selectOnly(el);
+            scrollToItem(el);
             scheduleSave();
           });
         });
@@ -1092,7 +1105,9 @@
             pushHistory();
             var w = Math.max(110, subs.length * 50 + 20);
             var spot = nextSpot();
-            buildInstrumentEl({label:name, tray:true, w:w, h:104, x:spot.x, y:spot.y, sub: subs});
+            var el = buildInstrumentEl({label:name, tray:true, w:w, h:104, x:spot.x, y:spot.y, sub: subs});
+            selectOnly(el);
+            scrollToItem(el);
             scheduleSave();
           });
         });
