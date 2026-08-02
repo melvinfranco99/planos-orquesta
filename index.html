@@ -132,6 +132,14 @@
   .zone-brass .zone-label{color:#F87171;}
   .zone-percussion{background:rgba(34,211,238,.10);border:1.5px dashed rgba(34,211,238,.55);}
   .zone-percussion .zone-label{color:#22D3EE;}
+  .zone-choir{background:rgba(250,204,21,.12);border:1.5px dashed rgba(250,204,21,.6);}
+  .zone-choir .zone-label{color:#CA9A05;}
+  .zone-harp{background:rgba(244,114,182,.10);border:1.5px dashed rgba(244,114,182,.55);}
+  .zone-harp .zone-label{color:#F472B6;}
+  .zone-piano{background:rgba(96,165,250,.10);border:1.5px dashed rgba(96,165,250,.55);}
+  .zone-piano .zone-label{color:#60A5FA;}
+  .zone-director{background:rgba(148,163,184,.14);border:1.5px dashed rgba(148,163,184,.6);}
+  .zone-director .zone-label{color:#94A3B8;}
 
   .edge-label{position:absolute;left:0;right:0;text-align:center;font-size:12px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:var(--ink-dim);pointer-events:none;}
   .edge-label.audience{top:12px;display:flex;align-items:center;justify-content:center;gap:7px;color:var(--accent-ink);}
@@ -488,6 +496,28 @@
       {label:'Percusión', kind:'percussion', box:bbox(perc, ZONE_PAD_X, ZONE_PAD_Y)}
     ];
     SECTIONS.push({group:'Banda sinfónica', id:'banda-entera', label:'Banda entera', items:items, zones:zones, vw:1370, vh:rowBottom(perc)+60});
+  })();
+
+  // Auditorio Nacional de Música de Madrid, Sala Sinfónica: base plan only
+  // (no instruments placed), shaped after the real stage — a "vineyard"-style
+  // hall modeled on the Berlin Philharmonie, whose stage can be subdivided
+  // into podiums and holds a full orchestra plus a ~130-voice choir on a
+  // raised terrace at the back. Rows run, front (public) to back: conductor,
+  // strings, woodwinds, harp/piano flanking the sides, brass, percussion,
+  // choir — each a differently-sized podium rather than a plain rectangle.
+  (function(){
+    var zone = function(label, kind, x, y, w, h){ return { label:label, kind:kind, box:{x:x, y:y, w:w, h:h} }; };
+    var zones = [
+      zone('Director', 'director', 620, 60, 160, 90),
+      zone('Cuerdas', 'strings', 180, 158, 1040, 170),
+      zone('Viento madera', 'woodwind', 420, 336, 560, 150),
+      zone('Arpa', 'harp', 60, 494, 190, 150),
+      zone('Piano', 'piano', 1150, 494, 190, 150),
+      zone('Metales', 'brass', 410, 652, 580, 150),
+      zone('Percusión', 'percussion', 420, 810, 560, 150),
+      zone('Coro', 'choir', 250, 968, 900, 190)
+    ];
+    SECTIONS.push({group:'Auditorio Nacional', id:'auditorio-sinfonica', label:'Sala Sinfónica', items:[], zones:zones, vw:1400, vh:1240});
   })();
 
   //=== Modal system ==========================================================
